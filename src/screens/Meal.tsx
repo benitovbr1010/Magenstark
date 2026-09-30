@@ -1,0 +1,329 @@
+import { Soup } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { DateTimeField } from '../components/DateTimeField'
+import { ScreenHeader } from '../components/ScreenHeader'
+import { ToggleChip } from '../components/ToggleChip'
+import { VoiceRecorder } from '../components/VoiceRecorder'
+import { useAuth } from '../lib/AuthContext'
+import { goodMarkerLabels, markerLabels, mealTypeLabels } from '../lib/constants'
+import { fetchLatestContext, type ActiveContext } from '../lib/context'
+import { supabase } from '../lib/supabaseClient'
+
+type MealType = keyof typeof mealTypeLabels
+type Marker = keyof typeof markerLabels
+type GoodMarker = keyof typeof goodMarkerLabels
+
+const mealTypeKeys = Object.keys(mealTypeLabels) as MealType[]
+const markerKeys = Object.keys(markerLabels) as Marker[]
+const goodMarkerKeys = Object.keys(goodMarkerLabels) as GoodMarker[]
+
+function capChips<T extends string>(items: T[], max = 3): { shown: T[]; extra: number } {
+  return { shown: items.slice(0, max), extra: Math.max(0, items.length - max) }
+}
+
+export function Meal() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const editId = searchParams.get('id')
+  const { session } = useAuth()
+
+  const [rawText, setRawText] = useState('')
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analyzed, setAnalyzed] = useState(false)
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null)
+  const [editingSummary, setEditingSummary] = useState(false)
+
+  const [eatenAt, setEatenAt] = useState(new Date())
+  const [mealType, setMealType] = useState<MealType>('snack')
+  const [summary, setSummary] = useState('')
+  const [mainFoods, setMainFoods] = useState<string[]>([])
+  const [markers, setMarkers] = useState<Marker[]>([])
+  const [goodMarkers, setGoodMarkers] = useState<GoodMarker[]>([])
+
+  const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(!!editId)
+  const [activeContext, setActiveContext] = useState<ActiveContext | null>(null)
+
+  useEffect(() => {
+    if (editId || !session) return
+    fetchLatestContext(session.user.id).then(setActiveContext)
+  }, [editId, session])
+
+  useEffect(() => {
+    if (!editId) return
+    supabase
+      .from('meals')
+      .select('*')
+      .eq('id', editId)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setRawText(data.raw_text)
+          setEatenAt(new Date(data.eaten_at))
+          setMealType(data.meal_type as MealType)
+          setSummary(data.summary)
+          setMainFoods(data.main_foods)
+          setMarkers(data.markers as Marker[])
+          setGoodMarkers(data.good_markers as GoodMarker[])
+          setAnalyzed(true)
+        }
+        setLoading(false)
+      })
+  }, [editId])
+
+  function toggleMarker(key: Marker) {
+    setMarkers((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+  }
+
+  function toggleGoodMarker(key: GoodMarker) {
+    setGoodMarkers((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+  }
+
+  async function handleAnalyze() {
+    if (!rawText.trim()) return
+    setAnalyzing(true)
+    setAnalyzeError(null)
+    const now = new Date()
+    const { data, error } = await supabase.functions.invoke('analyze-meal', {
+      body: { text: rawText, currentTime: now.toISOString() },
+    })
+    setAnalyzing(false)
+    if (error || !data) {
+      setAnalyzeError('Auswertung fehlgeschlagen. Bitte erneut versuchen.')
+      return
+    }
+    setMealType(data.meal_type)
+    setSummary(data.summary)
+    setMainFoods(data.main_foods ?? [])
+    setMarkers(data.markers ?? [])
+    setGoodMarkers(data.good_markers ?? [])
+    if (data.eaten_at_hint) {
+      const [h, m] = data.eaten_at_hint.split(':').map(Number)
+      if (!Number.isNaN(h) && !Number.isNaN(m)) {
+        const withHint = new Date(now)
+        withHint.setHours(h, m, 0, 0)
+        setEatenAt(withHint)
+      }
+    } else {
+      setEatenAt(now)
+    }
+    setAnalyzed(true)
+  }
+
+  async function handleSave() {
+    if (!session || !summary.trim()) return
+    setSaving(true)
+    const payload = {
+      user_id: session.user.id,
+      eaten_at: eatenAt.toISOString(),
+      meal_type: mealType,
+      raw_text: rawText,
+      summary: summary.trim(),
+      main_foods: mainFoods,
+      markers,
+      good_markers: goodMarkers,
+      ...(editId ? {} : { place: activeContext?.place ?? null, phase: activeContext?.phase ?? null }),
+    }
+    const { error } = editId
+      ? await supabase.from('meals').update(payload).eq('id', editId)
+      : await supabase.from('meals').insert(payload)
+    setSaving(false)
+    if (!error) {
+      navigate('/')
+    }
+  }
+
+  async function handleDelete() {
+    if (!editId) return
+    setSaving(true)
+    const { error } = await supabase.from('meals').delete().eq('id', editId)
+    setSaving(false)
+    if (!error) {
+      navigate('/')
+    }
+  }
+
+  if (loading) {
+    return null
+  }
+
+  const markerChips = capChips(markers)
+  const goodChips = capChips(goodMarkers)
+
+  return (
+    <div className="pb-10">
+      <ScreenHeader
+        title="Eintrag erfassen"
+        subtitleSlot={<DateTimeField value={eatenAt} onChange={setEatenAt} variant="plain" />}
+      />
+
+      <div className="mt-6 flex flex-col gap-6 px-4">
+        {!analyzed ? (
+          <>
+            <div className="flex items-start gap-3">
+              <textarea
+                value={rawText}
+                onChange={(e) => setRawText(e.target.value)}
+                placeholder="Was hast du gegessen?"
+                autoFocus
+                rows={6}
+                className="flex-1 rounded-2xl border border-border bg-card px-4 py-3 text-text outline-none focus:border-primary"
+              />
+              <VoiceRecorder
+                onTranscribed={(text) => setRawText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))}
+              />
+            </div>
+            {analyzeError && <p className="text-sm text-warning">{analyzeError}</p>}
+            <button
+              type="button"
+              disabled={!rawText.trim() || analyzing}
+              onClick={handleAnalyze}
+              className="rounded-full bg-primary px-4 py-3 font-medium text-white disabled:opacity-40"
+            >
+              {analyzing ? 'Wird ausgewertet …' : 'Auswerten'}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <p className="text-xs text-text-tertiary">Das hast du erzählt</p>
+              <p className="mt-1 text-sm text-text">{rawText}</p>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-xs font-medium text-text-tertiary">Zusammenfassung</p>
+              <div className="mt-2 flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-light text-primary-text">
+                  <Soup size={18} strokeWidth={1.75} />
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-text">{mealTypeLabels[mealType]}</p>
+                  <p className="text-sm text-text-secondary">{summary}</p>
+                </div>
+              </div>
+
+              {markerChips.shown.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs text-text-tertiary">Mögliche Auslöser</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {markerChips.shown.map((m) => (
+                      <span key={m} className="rounded-full bg-warning-light px-3 py-1 text-xs text-warning">
+                        {markerLabels[m]}
+                      </span>
+                    ))}
+                    {markerChips.extra > 0 && (
+                      <span className="rounded-full bg-card px-3 py-1 text-xs text-text-tertiary">
+                        +{markerChips.extra}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {goodChips.shown.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs text-text-tertiary">Gut</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {goodChips.shown.map((m) => (
+                      <span key={m} className="rounded-full bg-primary-light px-3 py-1 text-xs text-primary-text">
+                        {goodMarkerLabels[m]}
+                      </span>
+                    ))}
+                    {goodChips.extra > 0 && (
+                      <span className="rounded-full bg-card px-3 py-1 text-xs text-text-tertiary">
+                        +{goodChips.extra}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {editingSummary && (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <p className="text-sm font-medium text-text">Mahlzeittyp</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {mealTypeKeys.map((key) => (
+                      <ToggleChip
+                        key={key}
+                        label={mealTypeLabels[key]}
+                        active={mealType === key}
+                        onClick={() => setMealType(key)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <textarea
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  rows={2}
+                  className="rounded-2xl border border-border bg-card px-4 py-3 text-text outline-none focus:border-primary"
+                />
+
+                <div>
+                  <p className="text-sm font-medium text-text">Mögliche Auslöser</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {markerKeys.map((key) => (
+                      <ToggleChip
+                        key={key}
+                        label={markerLabels[key]}
+                        active={markers.includes(key)}
+                        onClick={() => toggleMarker(key)}
+                        tone="warning"
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-text">Gut</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {goodMarkerKeys.map((key) => (
+                      <ToggleChip
+                        key={key}
+                        label={goodMarkerLabels[key]}
+                        active={goodMarkers.includes(key)}
+                        onClick={() => toggleGoodMarker(key)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              disabled={!summary.trim() || saving}
+              onClick={handleSave}
+              className="rounded-full bg-primary px-4 py-3 font-medium text-white disabled:opacity-40"
+            >
+              {saving ? 'Speichern …' : editId ? 'Eintrag aktualisieren' : 'Eintrag speichern'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEditingSummary((v) => !v)}
+              className="text-sm font-medium text-primary-text"
+            >
+              {editingSummary ? 'Fertig' : 'Bearbeiten'}
+            </button>
+
+            {editId && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleDelete}
+                className="text-sm font-medium text-warning"
+              >
+                Eintrag löschen
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
