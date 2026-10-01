@@ -1,5 +1,6 @@
 import { flagLabels, symptomLabels } from './constants'
 import { toDateOnly } from './datetime'
+import { computeMealRhythm, computeSleepDuration } from './mealRhythm'
 import type { Profile } from './profile'
 import { supabase } from './supabaseClient'
 import { fetchWaterLogs, totalMl } from './water'
@@ -20,7 +21,10 @@ export type ReportData = {
   placeDays: { place: string; days: number }[]
   avgStress: number | null
   avgSleep: number | null
+  avgSleepDurationHours: number | null
   avgWaterMlPerDay: number
+  mealRhythm: { label: string; earliest: string | null; latest: string | null; regularity: string | null }[]
+  longestMealGapHours: number | null
   documents: { title: string; docDate: string | null; summary: string | null }[]
   savedQuestions: string[]
   notePatterns: string[]
@@ -129,6 +133,13 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
     ? Math.round((dayClosingRows.reduce((sum, row) => sum + row.sleep, 0) / dayClosingRows.length) * 10) / 10
     : null
 
+  const rhythm = computeMealRhythm(mealRows, dayClosingRows)
+  const mealRhythm = rhythm.byMealType
+    .filter((m) => m.count > 0)
+    .map((m) => ({ label: m.label, earliest: m.earliest, latest: m.latest, regularity: m.regularity }))
+  const longestMealGapHours = rhythm.longestGapHours
+  const avgSleepDurationHours = computeSleepDuration(dayClosingRows).avgDurationHours
+
   const documents = (documentsRes.data ?? []).map((doc) => ({
     title: doc.title,
     docDate: doc.doc_date,
@@ -170,7 +181,10 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
     placeDays,
     avgStress,
     avgSleep,
+    avgSleepDurationHours,
     avgWaterMlPerDay,
+    mealRhythm,
+    longestMealGapHours,
     documents,
     savedQuestions,
     notePatterns,

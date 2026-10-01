@@ -119,6 +119,7 @@ export type Database = {
       }
       day_closings: {
         Row: {
+          bedtime: string | null
           created_at: string
           date: string
           id: string
@@ -127,8 +128,10 @@ export type Database = {
           stress: number
           tags: string[]
           user_id: string
+          wake_time: string | null
         }
         Insert: {
+          bedtime?: string | null
           created_at?: string
           date: string
           id?: string
@@ -137,8 +140,10 @@ export type Database = {
           stress: number
           tags?: string[]
           user_id: string
+          wake_time?: string | null
         }
         Update: {
+          bedtime?: string | null
           created_at?: string
           date?: string
           id?: string
@@ -147,6 +152,7 @@ export type Database = {
           stress?: number
           tags?: string[]
           user_id?: string
+          wake_time?: string | null
         }
         Relationships: []
       }
@@ -250,18 +256,80 @@ export type Database = {
         }
         Relationships: []
       }
+      ingredient_profiles: {
+        Row: {
+          created_at: string
+          fodmap_types: string[]
+          good_markers: string[]
+          id: string
+          markers: string[]
+          name: string
+          note: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          fodmap_types?: string[]
+          good_markers?: string[]
+          id?: string
+          markers?: string[]
+          name: string
+          note?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          fodmap_types?: string[]
+          good_markers?: string[]
+          id?: string
+          markers?: string[]
+          name?: string
+          note?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      meal_analysis_cache: {
+        Row: {
+          created_at: string
+          id: string
+          raw_text: string
+          result: Json
+          text_hash: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          raw_text: string
+          result: Json
+          text_hash: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          raw_text?: string
+          result?: Json
+          text_hash?: string
+        }
+        Relationships: []
+      }
       meals: {
         Row: {
           created_at: string
           eaten_at: string
+          eaten_quickly: boolean
+          fodmap_sources: string[]
           good_foods: string[]
           good_markers: string[]
           id: string
+          ingredients: string[]
           main_foods: string[]
           markers: string[]
           meal_type: string
           phase: string | null
           place: string | null
+          portion: string | null
+          prep_markers: string[]
           raw_text: string
           summary: string
           user_id: string
@@ -269,14 +337,19 @@ export type Database = {
         Insert: {
           created_at?: string
           eaten_at: string
+          eaten_quickly?: boolean
+          fodmap_sources?: string[]
           good_foods?: string[]
           good_markers?: string[]
           id?: string
+          ingredients?: string[]
           main_foods?: string[]
           markers?: string[]
           meal_type: string
           phase?: string | null
           place?: string | null
+          portion?: string | null
+          prep_markers?: string[]
           raw_text: string
           summary: string
           user_id: string
@@ -284,14 +357,19 @@ export type Database = {
         Update: {
           created_at?: string
           eaten_at?: string
+          eaten_quickly?: boolean
+          fodmap_sources?: string[]
           good_foods?: string[]
           good_markers?: string[]
           id?: string
+          ingredients?: string[]
           main_foods?: string[]
           markers?: string[]
           meal_type?: string
           phase?: string | null
           place?: string | null
+          portion?: string | null
+          prep_markers?: string[]
           raw_text?: string
           summary?: string
           user_id?: string

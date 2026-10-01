@@ -4,14 +4,17 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DateTimeField } from '../components/DateTimeField'
 import { KnowledgeSheet } from '../components/KnowledgeSheet'
 import { MarkerChip } from '../components/MarkerChip'
+import { MarkerOrigins } from '../components/MarkerOrigins'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { SavedMealSheet, type SavedMealDraft } from '../components/SavedMealSheet'
+import { Switch } from '../components/Switch'
 import { ToggleChip } from '../components/ToggleChip'
 import { VoiceRecorder } from '../components/VoiceRecorder'
 import { useAuth } from '../lib/AuthContext'
-import { goodMarkerLabels, markerLabels, mealTypeLabels } from '../lib/constants'
+import { goodMarkerLabels, markerLabels, mealTypeLabels, portionLabels, type PortionKey } from '../lib/constants'
 import { fetchLatestContext, type ActiveContext } from '../lib/context'
 import { withDatePart } from '../lib/datetime'
+import { computeMealMarkers, fetchIngredientProfiles, type IngredientProfileRow } from '../lib/ingredientProfiles'
 import { goodMarkerArticle, markerArticle, type KnowledgeArticle } from '../lib/knowledge'
 import { fetchSavedMeals, type SavedMealRow } from '../lib/savedMeals'
 import { supabase } from '../lib/supabaseClient'
@@ -23,6 +26,7 @@ type GoodMarker = keyof typeof goodMarkerLabels
 const mealTypeKeys = Object.keys(mealTypeLabels) as MealType[]
 const markerKeys = Object.keys(markerLabels) as Marker[]
 const goodMarkerKeys = Object.keys(goodMarkerLabels) as GoodMarker[]
+const portionKeys = Object.keys(portionLabels) as PortionKey[]
 
 function capChips<T extends string>(items: T[], max = 3): { shown: T[]; extra: number } {
   return { shown: items.slice(0, max), extra: Math.max(0, items.length - max) }
@@ -49,6 +53,12 @@ export function Meal() {
   const [markers, setMarkers] = useState<Marker[]>([])
   const [goodMarkers, setGoodMarkers] = useState<GoodMarker[]>([])
   const [goodFoods, setGoodFoods] = useState<string[]>([])
+  const [ingredients, setIngredients] = useState<string[]>([])
+  const [prepMarkers, setPrepMarkers] = useState<string[]>([])
+  const [fodmapSources, setFodmapSources] = useState<string[]>([])
+  const [portion, setPortion] = useState<PortionKey | null>(null)
+  const [eatenQuickly, setEatenQuickly] = useState(false)
+  const [ingredientProfiles, setIngredientProfiles] = useState<Record<string, IngredientProfileRow>>({})
 
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(!!editId)
@@ -74,7 +84,7 @@ export function Meal() {
       .select('*')
       .eq('id', editId)
       .single()
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (data) {
           setRawText(data.raw_text)
           setEatenAt(new Date(data.eaten_at))
@@ -84,6 +94,12 @@ export function Meal() {
           setMarkers(data.markers as Marker[])
           setGoodMarkers(data.good_markers as GoodMarker[])
           setGoodFoods(data.good_foods ?? [])
+          setIngredients(data.ingredients ?? [])
+          setPrepMarkers(data.prep_markers ?? [])
+          setFodmapSources(data.fodmap_sources ?? [])
+          setPortion((data.portion as PortionKey | null) ?? null)
+          setEatenQuickly(data.eaten_quickly ?? false)
+          if (data.ingredients?.length) setIngredientProfiles(await fetchIngredientProfiles(data.ingredients))
           setAnalyzed(true)
         }
         setLoading(false)
@@ -116,6 +132,10 @@ export function Meal() {
     setMarkers(data.markers ?? [])
     setGoodMarkers(data.good_markers ?? [])
     setGoodFoods(data.good_foods ?? [])
+    setIngredients(data.ingredients ?? [])
+    setPrepMarkers(data.prep_markers ?? [])
+    setFodmapSources(data.fodmap_sources ?? [])
+    if (data.ingredients?.length) setIngredientProfiles(await fetchIngredientProfiles(data.ingredients))
     if (!keepTime) {
       if (data.eaten_at_hint) {
         const [h, m] = data.eaten_at_hint.split(':').map(Number)
@@ -149,6 +169,10 @@ export function Meal() {
     setMarkers(meal.markers as Marker[])
     setGoodMarkers(meal.good_markers as GoodMarker[])
     setGoodFoods(meal.good_foods)
+    setIngredients([])
+    setPrepMarkers([])
+    setFodmapSources(meal.fodmap_sources ?? [])
+    setIngredientProfiles({})
     setAnalyzed(true)
   }
 
@@ -165,6 +189,11 @@ export function Meal() {
       markers,
       good_markers: goodMarkers,
       good_foods: goodFoods,
+      ingredients,
+      prep_markers: prepMarkers,
+      fodmap_sources: fodmapSources,
+      portion,
+      eaten_quickly: eatenQuickly,
       ...(editId ? {} : { place: activeContext?.place ?? null, phase: activeContext?.phase ?? null }),
     }
     const { error } = editId
@@ -192,6 +221,7 @@ export function Meal() {
 
   const markerChips = capChips(markers)
   const goodChips = capChips(goodMarkers)
+  const breakdown = computeMealMarkers(ingredients, prepMarkers, ingredientProfiles)
   const savedMealDraft: SavedMealDraft = {
     summary,
     meal_type: mealType,
@@ -199,7 +229,7 @@ export function Meal() {
     markers,
     good_markers: goodMarkers,
     good_foods: goodFoods,
-    fodmap_sources: [],
+    fodmap_sources: fodmapSources,
   }
 
   return (
@@ -290,6 +320,7 @@ export function Meal() {
                       </span>
                     )}
                   </div>
+                  <MarkerOrigins origins={breakdown.markerOrigins} labels={markerLabels} fodmapTypesByIngredient={breakdown.fodmapTypesByIngredient} tone="warning" />
                 </div>
               )}
 
@@ -311,11 +342,30 @@ export function Meal() {
                       </span>
                     )}
                   </div>
+                  <MarkerOrigins origins={breakdown.goodMarkerOrigins} labels={goodMarkerLabels} tone="primary" />
                   {goodFoods.length > 0 && (
                     <p className="mt-2 text-xs text-text-secondary">Konkret gut: {goodFoods.join(', ')}</p>
                   )}
                 </div>
               )}
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-sm font-medium text-text">Portion</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {portionKeys.map((key) => (
+                  <ToggleChip
+                    key={key}
+                    label={portionLabels[key]}
+                    active={portion === key}
+                    onClick={() => setPortion((prev) => (prev === key ? null : key))}
+                  />
+                ))}
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <p className="text-sm font-medium text-text">Schnell gegessen</p>
+                <Switch checked={eatenQuickly} onChange={setEatenQuickly} />
+              </div>
             </div>
 
             {editingSummary && (

@@ -5,6 +5,7 @@ import { BristolIcon } from '../components/BristolIcon'
 import { ContextSheet } from '../components/ContextSheet'
 import { KnowledgeSheet } from '../components/KnowledgeSheet'
 import { MarkerChip } from '../components/MarkerChip'
+import { MarkerOrigins } from '../components/MarkerOrigins'
 import { WeekStrip } from '../components/WeekStrip'
 import { useAuth } from '../lib/AuthContext'
 import {
@@ -28,6 +29,7 @@ import {
   startOfDay,
   toDateOnly,
 } from '../lib/datetime'
+import { computeMealMarkers, fetchIngredientProfiles, type IngredientProfileRow } from '../lib/ingredientProfiles'
 import { goodMarkerArticle, markerArticle, type KnowledgeArticle } from '../lib/knowledge'
 import { supabase } from '../lib/supabaseClient'
 import { addWaterLog, fetchWaterLogs, formatLiters, removeWaterLog, totalMl, type WaterLogRow } from '../lib/water'
@@ -57,6 +59,8 @@ export function Today() {
   const [contextSheetOpen, setContextSheetOpen] = useState(false)
   const [dayClosingDone, setDayClosingDone] = useState(false)
   const [infoArticle, setInfoArticle] = useState<KnowledgeArticle | null>(null)
+  const [ingredientProfiles, setIngredientProfiles] = useState<Record<string, IngredientProfileRow>>({})
+  const [sleepNudge, setSleepNudge] = useState<{ date: string } | null>(null)
 
   function reloadContext() {
     if (!session) return
@@ -75,6 +79,28 @@ export function Today() {
       .maybeSingle()
       .then(({ data }) => setDayClosingDone(!!data))
   }, [session])
+
+  useEffect(() => {
+    if (!session) return
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = toDateOnly(yesterday)
+    if (localStorage.getItem(`sleepNudgeSkipped_${yesterdayStr}`)) return
+    supabase
+      .from('day_closings')
+      .select('bedtime, wake_time')
+      .eq('user_id', session.user.id)
+      .eq('date', yesterdayStr)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data && (!data.bedtime || !data.wake_time)) setSleepNudge({ date: yesterdayStr })
+      })
+  }, [session])
+
+  function dismissSleepNudge() {
+    if (sleepNudge) localStorage.setItem(`sleepNudgeSkipped_${sleepNudge.date}`, '1')
+    setSleepNudge(null)
+  }
 
   async function handleExtendContext() {
     if (!context) return
@@ -150,6 +176,9 @@ export function Today() {
       )
       setWaterLogs(waterRes)
       setLoading(false)
+
+      const allIngredients = (mealsRes.data ?? []).flatMap((m) => m.ingredients ?? [])
+      if (allIngredients.length > 0) fetchIngredientProfiles(allIngredients).then(setIngredientProfiles)
     })
 
     return () => {
@@ -303,8 +332,14 @@ export function Today() {
                       </div>
                     </Link>
                     {(() => {
-                      const markers = capChips(entry.row.markers as (keyof typeof markerLabels)[])
-                      const goodMarkers = capChips(entry.row.good_markers as (keyof typeof goodMarkerLabels)[])
+                      const hasIngredients = (entry.row.ingredients ?? []).length > 0
+                      const breakdown = hasIngredients
+                        ? computeMealMarkers(entry.row.ingredients, entry.row.prep_markers ?? [], ingredientProfiles)
+                        : null
+                      const markerList = (breakdown?.markers ?? entry.row.markers) as (keyof typeof markerLabels)[]
+                      const goodMarkerList = (breakdown?.goodMarkers ?? entry.row.good_markers) as (keyof typeof goodMarkerLabels)[]
+                      const markers = capChips(markerList)
+                      const goodMarkers = capChips(goodMarkerList)
                       if (markers.shown.length === 0 && goodMarkers.shown.length === 0) return null
                       return (
                         <div className="ml-12 mt-1.5 flex flex-col gap-1.5">
@@ -338,6 +373,17 @@ export function Today() {
                               )}
                             </div>
                           )}
+                          {breakdown && (
+                            <>
+                              <MarkerOrigins
+                                origins={breakdown.markerOrigins}
+                                labels={markerLabels}
+                                fodmapTypesByIngredient={breakdown.fodmapTypesByIngredient}
+                                tone="warning"
+                              />
+                              <MarkerOrigins origins={breakdown.goodMarkerOrigins} labels={goodMarkerLabels} tone="primary" />
+                            </>
+                          )}
                         </div>
                       )
                     })()}
@@ -348,6 +394,28 @@ export function Today() {
           </ul>
         )}
       </div>
+
+      {isToday && sleepNudge && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
+          <span className="text-sm text-text">Wann bist du gestern ins Bett / aufgestanden?</span>
+          <div className="flex shrink-0 gap-2">
+            <Link
+              to={`/tagesabschluss?date=${sleepNudge.date}`}
+              onClick={dismissSleepNudge}
+              className="rounded-full bg-primary-light px-3 py-1.5 text-sm font-medium text-primary-text"
+            >
+              Angeben
+            </Link>
+            <button
+              type="button"
+              onClick={dismissSleepNudge}
+              className="rounded-full border border-border px-3 py-1.5 text-sm font-medium text-text-secondary"
+            >
+              Überspringen
+            </button>
+          </div>
+        </div>
+      )}
 
       {isToday && !dayClosingDone && (
         <Link

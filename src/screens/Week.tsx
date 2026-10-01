@@ -1,13 +1,21 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { ReportSheet } from '../components/ReportSheet'
+import { ToggleChip } from '../components/ToggleChip'
 import { useAuth } from '../lib/AuthContext'
 import { goodMarkerLabels, markerLabels } from '../lib/constants'
 import type { Database } from '../lib/database.types'
 import { endOfDay, getWeekDates, startOfDay, toDateOnly } from '../lib/datetime'
 import { supabase } from '../lib/supabaseClient'
-import { fetchWeekInsights, fetchWeekInsightsStats } from '../lib/weekInsights'
+import { fetchPeriodInsights, fetchWeekInsights, fetchWeekInsightsStats, type PeriodInsights } from '../lib/weekInsights'
 import { fetchWaterLogs, formatLiters, totalMl, type WaterLogRow } from '../lib/water'
+
+const periodOptions: { label: string; days: number | null }[] = [
+  { label: '1 Woche', days: 7 },
+  { label: '2 Wochen', days: 14 },
+  { label: '4 Wochen', days: 28 },
+  { label: 'Alles', days: null },
+]
 
 type BowelRow = Database['public']['Tables']['bowel_movements']['Row']
 type WellbeingRow = Database['public']['Tables']['wellbeing']['Row']
@@ -59,6 +67,9 @@ export function Week() {
   const [enoughDataForInsights, setEnoughDataForInsights] = useState<boolean | null>(null)
   const [insights, setInsights] = useState<{ auffaellig: string[]; ideas: string[] } | null>(null)
   const [insightsLoading, setInsightsLoading] = useState(false)
+  const [periodDays, setPeriodDays] = useState<number | null>(28)
+  const [periodInsights, setPeriodInsights] = useState<PeriodInsights | null>(null)
+  const [periodLoading, setPeriodLoading] = useState(true)
 
   const days = useMemo(() => getWeekDates(referenceDate), [referenceDate])
 
@@ -136,6 +147,22 @@ export function Week() {
       cancelled = true
     }
   }, [session])
+
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    setPeriodLoading(true)
+
+    fetchPeriodInsights(session.user.id, periodDays).then((result) => {
+      if (cancelled) return
+      setPeriodInsights(result)
+      setPeriodLoading(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [session, periodDays])
 
   const bristolCounts = bristolValues.map((value) => bowelRows.filter((row) => row.bristol === value).length)
   const maxBristolCount = Math.max(1, ...bristolCounts)
@@ -325,6 +352,109 @@ export function Week() {
               </div>
             </div>
           )}
+
+          <div className="flex flex-wrap gap-2">
+            {periodOptions.map((opt) => (
+              <ToggleChip
+                key={opt.label}
+                label={opt.label}
+                active={periodDays === opt.days}
+                onClick={() => setPeriodDays(opt.days)}
+              />
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-sm font-medium text-text-tertiary">Essensrhythmus</p>
+            {periodLoading ? (
+              <p className="mt-2 text-sm text-text-tertiary">Wird berechnet …</p>
+            ) : !periodInsights ? (
+              <p className="mt-2 text-sm text-text-tertiary">Noch zu wenig Daten für Muster</p>
+            ) : (
+              <div className="mt-3 flex flex-col gap-2">
+                {periodInsights.mealRhythm.byMealType
+                  .filter((m) => m.count > 0)
+                  .map((m) => (
+                    <p key={m.mealType} className="text-sm text-text">
+                      {m.label}: {m.earliest}–{m.latest} Uhr
+                      {m.regularity ? ` (${m.regularity})` : ''}
+                      {m.skippedDays > 0 ? `, ${m.skippedDays}× ausgelassen` : ''}
+                    </p>
+                  ))}
+                {periodInsights.mealRhythm.longestGapHours !== null && (
+                  <p className="text-sm text-text-secondary">
+                    Längste Pause zwischen Mahlzeiten: {periodInsights.mealRhythm.longestGapHours} Std.
+                  </p>
+                )}
+                {periodInsights.mealRhythm.avgLastMealToBedtimeMinutes !== null && (
+                  <p className="text-sm text-text-secondary">
+                    Letzte Mahlzeit bis Schlafengehen: Ø{' '}
+                    {Math.round((periodInsights.mealRhythm.avgLastMealToBedtimeMinutes / 60) * 10) / 10} Std. (n=
+                    {periodInsights.mealRhythm.lastMealToBedtimeCases})
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-sm font-medium text-text-tertiary">Schlaf</p>
+            {periodLoading ? (
+              <p className="mt-2 text-sm text-text-tertiary">Wird berechnet …</p>
+            ) : !periodInsights ? (
+              <p className="mt-2 text-sm text-text-tertiary">Noch zu wenig Daten für Muster</p>
+            ) : (
+              <div className="mt-3 flex flex-col gap-2">
+                <p className="text-sm text-text">
+                  Ø Dauer:{' '}
+                  {periodInsights.sleep.avgDurationHours !== null
+                    ? `${periodInsights.sleep.avgDurationHours} Std. (n=${periodInsights.sleep.durationCases})`
+                    : 'noch keine Schlafenszeiten erfasst'}
+                </p>
+                <p className="text-sm text-text">
+                  Ø Qualität:{' '}
+                  {periodInsights.sleep.avgQuality !== null
+                    ? `${periodInsights.sleep.avgQuality} / 5 (n=${periodInsights.sleep.qualityCases})`
+                    : '–'}
+                </p>
+                {periodInsights.lateEating ? (
+                  <p className="text-sm text-text-secondary">
+                    Spät gegessen (&lt;2h vor dem Schlafen): Ø Schlafqualität {periodInsights.lateEating.avgQualityLate}{' '}
+                    (n={periodInsights.lateEating.lateCases}) · sonst Ø {periodInsights.lateEating.avgQualityNotLate} (n=
+                    {periodInsights.lateEating.notLateCases})
+                  </p>
+                ) : (
+                  <p className="text-xs text-text-tertiary">Noch zu wenig Daten für Vergleich mit spätem Essen</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-sm font-medium text-text-tertiary">Mögliche Zusammenhänge</p>
+            {periodLoading ? (
+              <p className="mt-2 text-sm text-text-tertiary">Wird berechnet …</p>
+            ) : !periodInsights || periodInsights.connections.length === 0 ? (
+              <p className="mt-2 text-sm text-text-tertiary">Noch zu wenig Daten für Vergleiche</p>
+            ) : (
+              <div className="mt-3 flex flex-col gap-2">
+                {periodInsights.connections.map((c, i) =>
+                  c.type === 'ratio' ? (
+                    <p key={i} className="text-sm text-text">
+                      {c.label}: Bei {c.withSymptomCount} von {c.withCount} Mahlzeiten mit {c.label} traten danach
+                      Beschwerden auf, ohne {c.label} bei {c.withoutSymptomCount} von {c.withoutCount}. Könnte
+                      zusammenhängen.
+                    </p>
+                  ) : (
+                    <p key={i} className="text-sm text-text">
+                      {c.label}: {c.groupALabel} Ø {c.groupAAvg} (n={c.groupACount}) · {c.groupBLabel} Ø {c.groupBAvg}{' '}
+                      (n={c.groupBCount}) – {c.unit}. Könnte zusammenhängen.
+                    </p>
+                  ),
+                )}
+              </div>
+            )}
+          </div>
 
           {enoughDataForInsights !== null && (
             <div className="rounded-2xl border border-border bg-card p-4">

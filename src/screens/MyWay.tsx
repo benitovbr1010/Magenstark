@@ -1,6 +1,7 @@
-import { BookOpen, CheckCircle2, ChevronRight, Circle, FileText, Plus } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronRight, Circle, FileText, Plus, Wheat } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { IngredientsSheet } from '../components/IngredientsSheet'
 import { SavedMealSheet } from '../components/SavedMealSheet'
 import { StepSheet } from '../components/StepSheet'
 import { ToggleChip } from '../components/ToggleChip'
@@ -33,6 +34,7 @@ export function MyWay() {
   const [savedMeals, setSavedMeals] = useState<SavedMealRow[]>([])
   const [editingSavedMeal, setEditingSavedMeal] = useState<SavedMealRow | null>(null)
   const [savedMealSheetOpen, setSavedMealSheetOpen] = useState(false)
+  const [ingredientsSheetOpen, setIngredientsSheetOpen] = useState(false)
 
   function reloadSavedMeals() {
     if (!session) return
@@ -111,6 +113,19 @@ export function MyWay() {
         </div>
         <ChevronRight size={18} className="shrink-0 text-text-tertiary" />
       </Link>
+
+      <button
+        type="button"
+        onClick={() => setIngredientsSheetOpen(true)}
+        className="mt-3 flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left"
+      >
+        <Wheat size={22} className="shrink-0 text-primary-text" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-text">Zutaten-Bewertungen</p>
+          <p className="text-xs text-text-tertiary">Marker einzelner Zutaten ansehen und korrigieren</p>
+        </div>
+        <ChevronRight size={18} className="shrink-0 text-text-tertiary" />
+      </button>
 
       <div className="mt-5 flex flex-col gap-2">
         {steps.map((step, index) => (
@@ -266,6 +281,7 @@ export function MyWay() {
             existing={editingSavedMeal}
             onSaved={reloadSavedMeals}
           />
+          <IngredientsSheet open={ingredientsSheetOpen} onClose={() => setIngredientsSheetOpen(false)} />
         </>
       )}
     </div>

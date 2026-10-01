@@ -70,6 +70,14 @@ export const goodMarkerLabels = {
   ausreichend_getrunken: 'Ausreichend getrunken',
 } as const
 
+export const portionLabels = {
+  klein: 'Klein',
+  normal: 'Normal',
+  gross: 'Groß',
+} as const
+
+export type PortionKey = keyof typeof portionLabels
+
 export const phaseLabels = {
   alltag: 'Alltag',
   urlaub: 'Urlaub',

@@ -110,6 +110,32 @@ export function DoctorReportDocument({ data }: { data: ReportData }) {
           ))}
         </View>
 
+        {(data.mealRhythm.length > 0 || data.avgSleepDurationHours !== null) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Essensrhythmus & Schlaf</Text>
+            {data.mealRhythm.map((m) => (
+              <View style={styles.row} key={m.label}>
+                <Text style={styles.label}>{m.label}</Text>
+                <Text style={styles.value}>
+                  {m.earliest}–{m.latest} Uhr{m.regularity ? ` (${m.regularity})` : ''}
+                </Text>
+              </View>
+            ))}
+            {data.longestMealGapHours !== null && (
+              <View style={styles.row}>
+                <Text style={styles.label}>Längste Pause zwischen Mahlzeiten</Text>
+                <Text style={styles.value}>{data.longestMealGapHours} Std.</Text>
+              </View>
+            )}
+            {data.avgSleepDurationHours !== null && (
+              <View style={styles.row}>
+                <Text style={styles.label}>Schlafdauer Ø</Text>
+                <Text style={styles.value}>{data.avgSleepDurationHours} Std.</Text>
+              </View>
+            )}
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Kontext</Text>
           {data.placeDays.length > 0 ? (
