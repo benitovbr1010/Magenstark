@@ -27,7 +27,7 @@ export function Document() {
   const [searchParams] = useSearchParams()
   const id = searchParams.get('id')
   const [doc, setDoc] = useState<DocumentRow | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -49,8 +49,14 @@ export function Document() {
       .then(async ({ data }) => {
         if (data) {
           setDoc(data)
-          const { data: signed } = await supabase.storage.from('documents').createSignedUrl(data.file_path, 3600)
-          setPreviewUrl(signed?.signedUrl ?? null)
+          const paths = data.file_paths?.length ? data.file_paths : [data.file_path]
+          const signedUrls = await Promise.all(
+            paths.map(async (path) => {
+              const { data: signed } = await supabase.storage.from('documents').createSignedUrl(path, 3600)
+              return signed?.signedUrl ?? null
+            }),
+          )
+          setPreviewUrls(signedUrls.filter((url): url is string => Boolean(url)))
         }
         setLoading(false)
       })
@@ -80,14 +86,15 @@ export function Document() {
   useEffect(loadQuestions, [id])
   useEffect(loadChats, [id])
 
-  async function handleOpen() {
-    if (previewUrl) window.open(previewUrl, '_blank')
+  function handleOpen(url: string) {
+    window.open(url, '_blank')
   }
 
   async function handleDelete() {
     if (!doc) return
     setDeleting(true)
-    await supabase.storage.from('documents').remove([doc.file_path])
+    const paths = doc.file_paths?.length ? doc.file_paths : [doc.file_path]
+    await supabase.storage.from('documents').remove(paths)
     await supabase.from('documents').delete().eq('id', doc.id)
     setDeleting(false)
     navigate('/mein-weg')
@@ -155,8 +162,8 @@ export function Document() {
     return null
   }
 
-  const extension = doc.file_path.split('.').pop()?.toLowerCase() ?? ''
-  const isImage = imageExtensions.includes(extension)
+  const docPaths = doc.file_paths?.length ? doc.file_paths : [doc.file_path]
+  const isImage = docPaths.every((p) => imageExtensions.includes(p.split('.').pop()?.toLowerCase() ?? ''))
 
   return (
     <div className="pb-10">
@@ -167,19 +174,27 @@ export function Document() {
 
       <div className="mt-6 flex flex-col gap-4 px-4">
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card p-6">
-          {isImage && previewUrl ? (
-            <img src={previewUrl} alt={doc.title} className="max-h-64 rounded-xl object-contain" />
+          {isImage && previewUrls.length > 0 ? (
+            <div className={`grid w-full gap-2 ${previewUrls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {previewUrls.map((url, i) => (
+                <button key={i} type="button" onClick={() => handleOpen(url)} className="block">
+                  <img src={url} alt={`${doc.title} ${i + 1}`} className="max-h-64 w-full rounded-xl object-contain" />
+                </button>
+              ))}
+            </div>
           ) : (
-            <FileText size={48} className="text-text-tertiary" />
+            <>
+              <FileText size={48} className="text-text-tertiary" />
+              <button
+                type="button"
+                disabled={previewUrls.length === 0}
+                onClick={() => previewUrls[0] && handleOpen(previewUrls[0])}
+                className="rounded-full bg-primary-light px-4 py-2 text-sm font-medium text-primary-text disabled:opacity-40"
+              >
+                Öffnen
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            disabled={!previewUrl}
-            onClick={handleOpen}
-            className="rounded-full bg-primary-light px-4 py-2 text-sm font-medium text-primary-text disabled:opacity-40"
-          >
-            Öffnen
-          </button>
         </div>
 
         {!analysis ? (

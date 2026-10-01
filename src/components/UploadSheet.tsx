@@ -13,7 +13,7 @@ export function UploadSheet({
   userId: string
   onSaved: () => void
 }) {
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [title, setTitle] = useState('')
   const [docDate, setDocDate] = useState(toDateOnly(new Date()))
   const [source, setSource] = useState('')
@@ -23,24 +23,28 @@ export function UploadSheet({
   if (!open) return null
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const selected = e.target.files?.[0] ?? null
-    setFile(selected)
-    if (selected && !title) {
-      setTitle(selected.name.replace(/\.[^.]+$/, ''))
+    const selected = Array.from(e.target.files ?? [])
+    setFiles(selected)
+    if (selected[0] && !title) {
+      setTitle(selected[0].name.replace(/\.[^.]+$/, ''))
     }
   }
 
   async function handleSave() {
-    if (!file || !title.trim()) return
+    if (files.length === 0 || !title.trim()) return
     setSaving(true)
     setError(null)
 
-    const path = `${userId}/${crypto.randomUUID()}-${file.name}`
-    const { error: uploadError } = await supabase.storage.from('documents').upload(path, file)
-    if (uploadError) {
-      setError('Upload fehlgeschlagen. Bitte erneut versuchen.')
-      setSaving(false)
-      return
+    const paths: string[] = []
+    for (const file of files) {
+      const path = `${userId}/${crypto.randomUUID()}-${file.name}`
+      const { error: uploadError } = await supabase.storage.from('documents').upload(path, file)
+      if (uploadError) {
+        setError('Upload fehlgeschlagen. Bitte erneut versuchen.')
+        setSaving(false)
+        return
+      }
+      paths.push(path)
     }
 
     const { error: insertError } = await supabase.from('documents').insert({
@@ -48,7 +52,8 @@ export function UploadSheet({
       title: title.trim(),
       doc_date: docDate || null,
       source: source.trim() || null,
-      file_path: path,
+      file_path: paths[0],
+      file_paths: paths,
     })
 
     setSaving(false)
@@ -58,7 +63,7 @@ export function UploadSheet({
     }
     onSaved()
     onClose()
-    setFile(null)
+    setFiles([])
     setTitle('')
     setSource('')
   }
@@ -72,9 +77,13 @@ export function UploadSheet({
           <input
             type="file"
             accept="application/pdf,image/*"
+            multiple
             onChange={handleFileChange}
             className="text-sm text-text"
           />
+          {files.length > 1 && (
+            <p className="text-xs text-text-tertiary">{files.length} Dateien ausgewählt</p>
+          )}
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -110,7 +119,7 @@ export function UploadSheet({
           </button>
           <button
             type="button"
-            disabled={!file || !title.trim() || saving}
+            disabled={files.length === 0 || !title.trim() || saving}
             onClick={handleSave}
             className="flex-1 rounded-full bg-primary px-4 py-3 font-medium text-white disabled:opacity-40"
           >

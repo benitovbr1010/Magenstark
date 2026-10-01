@@ -85,28 +85,35 @@ Deno.serve(async (req) => {
       })
     }
 
-    const { data: fileBlob, error: downloadError } = await supabase.storage.from('documents').download(doc.file_path)
-    if (downloadError || !fileBlob) {
-      return new Response(JSON.stringify({ error: 'Datei konnte nicht geladen werden' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+    const filePaths: string[] = doc.file_paths?.length ? doc.file_paths : [doc.file_path]
+
+    const contentBlocks = []
+    for (const filePath of filePaths) {
+      const { data: fileBlob, error: downloadError } = await supabase.storage.from('documents').download(filePath)
+      if (downloadError || !fileBlob) {
+        return new Response(JSON.stringify({ error: 'Datei konnte nicht geladen werden' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      const extension = filePath.split('.').pop()?.toLowerCase() ?? ''
+      const isPdf = extension === 'pdf'
+      const mediaType = isPdf
+        ? 'application/pdf'
+        : extension === 'png'
+          ? 'image/png'
+          : extension === 'webp'
+            ? 'image/webp'
+            : 'image/jpeg'
+
+      const base64 = arrayBufferToBase64(await fileBlob.arrayBuffer())
+      contentBlocks.push(
+        isPdf
+          ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } }
+          : { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+      )
     }
-
-    const extension = doc.file_path.split('.').pop()?.toLowerCase() ?? ''
-    const isPdf = extension === 'pdf'
-    const mediaType = isPdf
-      ? 'application/pdf'
-      : extension === 'png'
-        ? 'image/png'
-        : extension === 'webp'
-          ? 'image/webp'
-          : 'image/jpeg'
-
-    const base64 = arrayBufferToBase64(await fileBlob.arrayBuffer())
-    const contentBlock = isPdf
-      ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } }
-      : { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -126,7 +133,16 @@ Deno.serve(async (req) => {
         messages: [
           {
             role: 'user',
-            content: [contentBlock, { type: 'text', text: `Titel: ${doc.title}. Werte diesen Befund aus.` }],
+            content: [
+              ...contentBlocks,
+              {
+                type: 'text',
+                text:
+                  contentBlocks.length > 1
+                    ? `Titel: ${doc.title}. Dies sind ${contentBlocks.length} Bilder/Seiten desselben Befunds. Werte sie zusammen als ein Dokument aus.`
+                    : `Titel: ${doc.title}. Werte diesen Befund aus.`,
+              },
+            ],
           },
         ],
         tools: [analyzeDocumentTool],

@@ -229,6 +229,7 @@ export type Database = {
           created_at: string
           doc_date: string | null
           file_path: string
+          file_paths: string[]
           id: string
           source: string | null
           title: string
@@ -239,6 +240,7 @@ export type Database = {
           created_at?: string
           doc_date?: string | null
           file_path: string
+          file_paths?: string[]
           id?: string
           source?: string | null
           title: string
@@ -249,6 +251,7 @@ export type Database = {
           created_at?: string
           doc_date?: string | null
           file_path?: string
+          file_paths?: string[]
           id?: string
           source?: string | null
           title?: string
