@@ -2,17 +2,33 @@ import { CheckCircle2, Circle, FileText, Send } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ScreenHeader } from '../components/ScreenHeader'
-import { valueStatusLabels } from '../lib/constants'
+import { findingStatusLabels, labStatusLabels } from '../lib/constants'
 import type { Database } from '../lib/database.types'
+import { toDateOnly } from '../lib/datetime'
 import { supabase } from '../lib/supabaseClient'
 
 type DocumentRow = Database['public']['Tables']['documents']['Row']
 type DoctorQuestionRow = Database['public']['Tables']['doctor_questions']['Row']
 type DocumentChatRow = Database['public']['Tables']['document_chats']['Row']
+type StepRow = Database['public']['Tables']['steps']['Row']
+
+type Finding = {
+  name: string
+  quote: string
+  explanation: string
+  kind: 'lab' | 'finding'
+  status: string
+  value?: string
+  unit?: string
+  reference_range?: string
+}
 
 type DocumentAnalysis = {
   summary: string
-  values: { name: string; value: string; unit: string; reference_range: string; status: string }[]
+  findings: Finding[]
+  recommendations: { text: string; quote: string }[]
+  missing_info: string[]
+  additional_info: { name: string; value: string }[]
   questions: string[]
 }
 
@@ -36,6 +52,11 @@ export function Document() {
   const [chats, setChats] = useState<DocumentChatRow[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatSending, setChatSending] = useState(false)
+  const [showAdditionalInfo, setShowAdditionalInfo] = useState(false)
+  const [allSteps, setAllSteps] = useState<StepRow[]>([])
+  const [selectedStepId, setSelectedStepId] = useState('')
+  const [stepUpdating, setStepUpdating] = useState(false)
+  const [addedRecommendations, setAddedRecommendations] = useState<Set<number>>(new Set())
 
   const analysis = doc?.analysis as DocumentAnalysis | null
 
@@ -82,9 +103,23 @@ export function Document() {
       .then(({ data }) => setChats(data ?? []))
   }
 
+  function loadSteps() {
+    if (!doc) return
+    supabase
+      .from('steps')
+      .select('*')
+      .eq('user_id', doc.user_id)
+      .order('sort_order')
+      .then(({ data }) => setAllSteps(data ?? []))
+  }
+
   useEffect(loadDoc, [id])
   useEffect(loadQuestions, [id])
   useEffect(loadChats, [id])
+  useEffect(loadSteps, [doc?.id])
+
+  const openSteps = allSteps.filter((s) => s.status !== 'done')
+  const nextSortOrder = allSteps.length ? Math.max(...allSteps.map((s) => s.sort_order)) + 1 : 0
 
   function handleOpen(url: string) {
     window.open(url, '_blank')
@@ -104,23 +139,27 @@ export function Document() {
     if (!doc) return
     setAnalyzing(true)
     setAnalyzeError(null)
+    setAddedRecommendations(new Set())
     const { data, error } = await supabase.functions.invoke('analyze-document', { body: { documentId: doc.id } })
     if (error || !data || data.error) {
       setAnalyzeError('Auswertung fehlgeschlagen. Bitte erneut versuchen.')
       setAnalyzing(false)
       return
     }
-    const result = data as DocumentAnalysis
-    await supabase.from('documents').update({ analysis: result }).eq('id', doc.id)
-    await supabase.from('doctor_questions').delete().eq('document_id', doc.id)
+    const { documentIds, ...result } = data as DocumentAnalysis & { documentIds: string[] }
+    const targetIds = documentIds?.length ? documentIds : [doc.id]
+    await supabase.from('documents').update({ analysis: result }).in('id', targetIds)
+    await supabase.from('doctor_questions').delete().in('document_id', targetIds)
     if (result.questions.length > 0) {
       await supabase.from('doctor_questions').insert(
-        result.questions.map((text) => ({
-          user_id: doc.user_id,
-          document_id: doc.id,
-          text,
-          saved: false,
-        })),
+        targetIds.flatMap((docId) =>
+          result.questions.map((text) => ({
+            user_id: doc.user_id,
+            document_id: docId,
+            text,
+            saved: false,
+          })),
+        ),
       )
     }
     setAnalyzing(false)
@@ -131,6 +170,34 @@ export function Document() {
   async function toggleQuestion(question: DoctorQuestionRow) {
     await supabase.from('doctor_questions').update({ saved: !question.saved }).eq('id', question.id)
     loadQuestions()
+  }
+
+  async function handleCompleteStep() {
+    if (!selectedStepId || !doc || !analysis) return
+    setStepUpdating(true)
+    await supabase
+      .from('steps')
+      .update({
+        status: 'done',
+        date: doc.doc_date ?? toDateOnly(new Date()),
+        result_short: analysis.summary.slice(0, 80),
+      })
+      .eq('id', selectedStepId)
+    setStepUpdating(false)
+    setSelectedStepId('')
+    loadSteps()
+  }
+
+  async function handleAddRecommendationAsStep(text: string, index: number) {
+    if (!doc) return
+    await supabase.from('steps').insert({
+      user_id: doc.user_id,
+      title: text,
+      status: 'open',
+      sort_order: nextSortOrder + index,
+    })
+    setAddedRecommendations((prev) => new Set(prev).add(index))
+    loadSteps()
   }
 
   async function handleSendChat() {
@@ -209,7 +276,7 @@ export function Document() {
         ) : (
           <div className="rounded-2xl border border-border bg-card p-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-primary-text">Auswertung</p>
+              <p className="text-sm font-medium text-primary-text">Das Wichtigste</p>
               <button
                 type="button"
                 disabled={analyzing}
@@ -221,25 +288,92 @@ export function Document() {
             </div>
             <p className="mt-2 text-sm text-text">{analysis.summary}</p>
 
-            {analysis.values.length > 0 && (
-              <div className="mt-4 flex flex-col gap-3">
-                {analysis.values.map((v, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-text">{v.name}</p>
-                      <p className="text-xs text-text-tertiary">
-                        {v.value} {v.unit} · Referenz {v.reference_range}
-                      </p>
+            {analysis.findings.length > 0 && (
+              <div className="mt-4 flex flex-col gap-4 border-t border-border pt-4">
+                <p className="text-sm font-medium text-primary-text">Einzelbefunde</p>
+                {analysis.findings.map((f, i) => {
+                  const isNormal = f.kind === 'lab' ? f.status === 'normal' : f.status === 'unauffaellig'
+                  const label =
+                    f.kind === 'lab'
+                      ? labStatusLabels[f.status as keyof typeof labStatusLabels]
+                      : findingStatusLabels[f.status as keyof typeof findingStatusLabels]
+                  return (
+                    <div key={i} className="flex flex-col gap-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-text">{f.name}</p>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${
+                            isNormal ? 'bg-primary-light text-primary-text' : 'bg-warning-light text-warning'
+                          }`}
+                        >
+                          {label ?? f.status}
+                        </span>
+                      </div>
+                      {f.kind === 'lab' && (f.value || f.reference_range) && (
+                        <p className="text-xs text-text-tertiary">
+                          {f.value} {f.unit} · Referenz {f.reference_range}
+                        </p>
+                      )}
+                      <p className="text-sm text-text-secondary">{f.explanation}</p>
+                      <p className="text-xs italic text-text-tertiary">„{f.quote}"</p>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${
-                        v.status === 'normal' ? 'bg-primary-light text-primary-text' : 'bg-warning-light text-warning'
-                      }`}
+                  )
+                })}
+              </div>
+            )}
+
+            {analysis.recommendations.length > 0 && (
+              <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
+                <p className="text-sm font-medium text-primary-text">Empfehlungen deines Arztes</p>
+                {analysis.recommendations.map((r, i) => (
+                  <div key={i} className="flex flex-col gap-1">
+                    <p className="text-sm text-text">{r.text}</p>
+                    <p className="text-xs italic text-text-tertiary">„{r.quote}"</p>
+                    <button
+                      type="button"
+                      disabled={addedRecommendations.has(i)}
+                      onClick={() => handleAddRecommendationAsStep(r.text, i)}
+                      className="mt-1 self-start text-xs font-medium text-primary-text disabled:text-text-tertiary"
                     >
-                      {valueStatusLabels[v.status as keyof typeof valueStatusLabels] ?? v.status}
-                    </span>
+                      {addedRecommendations.has(i) ? 'Als Schritt hinzugefügt' : '+ Als Schritt zu „Mein Weg" hinzufügen'}
+                    </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {analysis.missing_info.length > 0 && (
+              <div className="mt-4 border-t border-border pt-4">
+                <p className="text-sm font-medium text-primary-text">Was nicht im Befund steht</p>
+                <div className="mt-2 flex flex-col gap-1">
+                  {analysis.missing_info.map((m, i) => (
+                    <p key={i} className="text-sm text-text-secondary">
+                      · {m}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {analysis.additional_info.length > 0 && (
+              <div className="mt-4 border-t border-border pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAdditionalInfo((v) => !v)}
+                  className="text-xs font-medium text-text-tertiary"
+                >
+                  {showAdditionalInfo ? 'Weitere Angaben ausblenden' : 'Weitere Angaben anzeigen'}
+                </button>
+                {showAdditionalInfo && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {analysis.additional_info.map((a, i) => (
+                      <div key={i} className="flex justify-between text-xs text-text-tertiary">
+                        <span>{a.name}</span>
+                        <span>{a.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -248,6 +382,35 @@ export function Document() {
         )}
 
         {analyzeError && <p className="text-sm text-warning">{analyzeError}</p>}
+
+        {analysis && openSteps.length > 0 && (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-sm font-medium text-primary-text">Mein Weg aktualisieren</p>
+            <p className="mt-1 text-xs text-text-tertiary">Passenden Schritt mit diesem Ergebnis abschließen?</p>
+            <div className="mt-3 flex flex-col gap-2">
+              <select
+                value={selectedStepId}
+                onChange={(e) => setSelectedStepId(e.target.value)}
+                className="w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-text outline-none focus:border-primary"
+              >
+                <option value="">Schritt auswählen …</option>
+                {openSteps.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!selectedStepId || stepUpdating}
+                onClick={handleCompleteStep}
+                className="self-start rounded-full bg-primary-light px-4 py-2 text-sm font-medium text-primary-text disabled:opacity-40"
+              >
+                {stepUpdating ? 'Speichern …' : 'Als erledigt markieren'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {questions.length > 0 && (
           <div className="rounded-2xl border border-border bg-card p-4">

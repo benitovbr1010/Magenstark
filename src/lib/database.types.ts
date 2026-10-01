@@ -228,6 +228,7 @@ export type Database = {
           analysis: Json | null
           created_at: string
           doc_date: string | null
+          examination_id: string | null
           file_path: string
           file_paths: string[]
           id: string
@@ -239,6 +240,7 @@ export type Database = {
           analysis?: Json | null
           created_at?: string
           doc_date?: string | null
+          examination_id?: string | null
           file_path: string
           file_paths?: string[]
           id?: string
@@ -250,10 +252,40 @@ export type Database = {
           analysis?: Json | null
           created_at?: string
           doc_date?: string | null
+          examination_id?: string | null
           file_path?: string
           file_paths?: string[]
           id?: string
           source?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_examination_id_fkey"
+            columns: ["examination_id"]
+            isOneToOne: false
+            referencedRelation: "examinations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      examinations: {
+        Row: {
+          created_at: string
+          id: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
           title?: string
           user_id?: string
         }

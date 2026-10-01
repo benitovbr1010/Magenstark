@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createExamination, fetchExaminations, type ExaminationRow } from '../lib/examinations'
 import { toDateOnly } from '../lib/datetime'
 import { supabase } from '../lib/supabaseClient'
 
@@ -19,6 +20,14 @@ export function UploadSheet({
   const [source, setSource] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [examinations, setExaminations] = useState<ExaminationRow[]>([])
+  const [examinationChoice, setExaminationChoice] = useState<'none' | 'new' | string>('none')
+  const [newExaminationTitle, setNewExaminationTitle] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    fetchExaminations(userId).then(setExaminations)
+  }, [open, userId])
 
   if (!open) return null
 
@@ -34,6 +43,16 @@ export function UploadSheet({
     if (files.length === 0 || !title.trim()) return
     setSaving(true)
     setError(null)
+
+    let examinationId: string | null = null
+    if (examinationChoice === 'new') {
+      if (newExaminationTitle.trim()) {
+        const exam = await createExamination(userId, newExaminationTitle)
+        examinationId = exam?.id ?? null
+      }
+    } else if (examinationChoice !== 'none') {
+      examinationId = examinationChoice
+    }
 
     const paths: string[] = []
     for (const file of files) {
@@ -54,6 +73,7 @@ export function UploadSheet({
       source: source.trim() || null,
       file_path: paths[0],
       file_paths: paths,
+      examination_id: examinationId,
     })
 
     setSaving(false)
@@ -66,6 +86,8 @@ export function UploadSheet({
     setFiles([])
     setTitle('')
     setSource('')
+    setExaminationChoice('none')
+    setNewExaminationTitle('')
   }
 
   return (
@@ -105,6 +127,31 @@ export function UploadSheet({
             placeholder="Quelle, z. B. Hausarzt"
             className="rounded-2xl border border-border bg-card px-4 py-2 text-sm text-text outline-none focus:border-primary"
           />
+
+          <label>
+            <span className="text-xs text-text-tertiary">Gehört zu einer Untersuchung?</span>
+            <select
+              value={examinationChoice}
+              onChange={(e) => setExaminationChoice(e.target.value)}
+              className="mt-1 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-text outline-none focus:border-primary"
+            >
+              <option value="none">Keine</option>
+              {examinations.map((exam) => (
+                <option key={exam.id} value={exam.id}>
+                  {exam.title}
+                </option>
+              ))}
+              <option value="new">+ Neue Untersuchung anlegen</option>
+            </select>
+          </label>
+          {examinationChoice === 'new' && (
+            <input
+              value={newExaminationTitle}
+              onChange={(e) => setNewExaminationTitle(e.target.value)}
+              placeholder="Name der Untersuchung, z. B. Magenspiegelung Mai 2024"
+              className="rounded-2xl border border-border bg-card px-4 py-2 text-sm text-text outline-none focus:border-primary"
+            />
+          )}
         </div>
 
         {error && <p className="mt-2 text-sm text-warning">{error}</p>}

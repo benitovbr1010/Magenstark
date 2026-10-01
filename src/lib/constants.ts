@@ -96,12 +96,15 @@ export const stepStatusLabels = {
   open: 'offen',
 } as const
 
-export const valueStatusLabels = {
-  niedrig: 'niedrig',
-  knapp_niedrig: 'knapp niedrig',
-  normal: 'normal',
-  knapp_hoch: 'knapp hoch',
-  hoch: 'hoch',
+export const labStatusLabels = {
+  niedrig: 'Niedrig',
+  normal: 'Normal',
+  hoch: 'Hoch',
+} as const
+
+export const findingStatusLabels = {
+  unauffaellig: 'Unauffällig',
+  auffaellig: 'Auffällig',
 } as const
 
 export const dayTagLabels = {
