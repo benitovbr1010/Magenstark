@@ -23,6 +23,7 @@ export type ReportData = {
   avgWaterMlPerDay: number
   documents: { title: string; docDate: string | null; summary: string | null }[]
   savedQuestions: string[]
+  notePatterns: string[]
 }
 
 const flagKeys = Object.keys(flagLabels) as FlagKey[]
@@ -138,6 +139,23 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
   const numberOfDays = Math.max(1, Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)) + 1)
   const avgWaterMlPerDay = totalMl(waterRows) / numberOfDays
 
+  const notes = [
+    ...bowelRows
+      .filter((row) => row.note)
+      .map((row) => ({ date: toDateOnly(new Date(row.occurred_at)), type: 'Toilette', text: row.note as string })),
+    ...wellbeingRows
+      .filter((row) => row.note)
+      .map((row) => ({ date: toDateOnly(new Date(row.occurred_at)), type: 'Befinden', text: row.note as string })),
+    ...dayClosingRows
+      .filter((row) => row.note)
+      .map((row) => ({ date: row.date, type: 'Tagesabschluss', text: row.note as string })),
+  ]
+  let notePatterns: string[] = []
+  if (notes.length >= 2) {
+    const { data } = await supabase.functions.invoke('analyze-notes', { body: { notes } })
+    notePatterns = data?.patterns ?? []
+  }
+
   return {
     from,
     to,
@@ -155,5 +173,6 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
     avgWaterMlPerDay,
     documents,
     savedQuestions,
+    notePatterns,
   }
 }

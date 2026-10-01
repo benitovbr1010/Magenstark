@@ -153,6 +153,17 @@ export function DoctorReportDocument({ data }: { data: ReportData }) {
           </View>
         )}
 
+        {data.notePatterns.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Wiederkehrende Beobachtungen in den Notizen</Text>
+            {data.notePatterns.map((p, i) => (
+              <Text key={i} style={styles.value}>
+                · {p}
+              </Text>
+            ))}
+          </View>
+        )}
+
         {data.savedQuestions.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Fragen an den Arzt</Text>

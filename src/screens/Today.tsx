@@ -349,7 +349,7 @@ export function Today() {
         )}
       </div>
 
-      {isToday && !dayClosingDone && new Date().getHours() >= 19 && (
+      {isToday && !dayClosingDone && (
         <Link
           to="/tagesabschluss"
           className="mt-4 block rounded-2xl border border-border bg-card px-4 py-3 text-center text-sm font-medium text-primary-text"
