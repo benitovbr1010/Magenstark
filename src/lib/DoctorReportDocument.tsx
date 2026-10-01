@@ -1,5 +1,6 @@
 import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import type { ReportData } from './report'
+import { formatLiters } from './water'
 
 const styles = StyleSheet.create({
   page: { padding: 32, fontSize: 10, color: '#15181A', fontFamily: 'Helvetica' },
@@ -130,6 +131,10 @@ export function DoctorReportDocument({ data }: { data: ReportData }) {
           <View style={styles.row}>
             <Text style={styles.label}>Schlaf Ø (1–5)</Text>
             <Text style={styles.value}>{data.avgSleep ?? '–'}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Trinken Ø pro Tag</Text>
+            <Text style={styles.value}>{formatLiters(data.avgWaterMlPerDay)}</Text>
           </View>
         </View>
 

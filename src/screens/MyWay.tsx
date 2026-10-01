@@ -1,15 +1,17 @@
-import { CheckCircle2, Circle, FileText, Plus } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronRight, Circle, FileText, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { SavedMealSheet } from '../components/SavedMealSheet'
 import { StepSheet } from '../components/StepSheet'
-import { Switch } from '../components/Switch'
+import { ToggleChip } from '../components/ToggleChip'
 import { UploadSheet } from '../components/UploadSheet'
 import { useAuth } from '../lib/AuthContext'
-import { stepStatusLabels } from '../lib/constants'
+import { stepStatusLabels, themeModeLabels } from '../lib/constants'
 import type { Database } from '../lib/database.types'
 import { exportAsCsv, exportAsJson, fetchAllUserData } from '../lib/exportData'
+import { fetchSavedMeals, type SavedMealRow } from '../lib/savedMeals'
 import { supabase } from '../lib/supabaseClient'
-import { useTheme } from '../lib/theme'
+import { type ThemeMode, useTheme } from '../lib/theme'
 
 type StepRow = Database['public']['Tables']['steps']['Row']
 type DocumentRow = Database['public']['Tables']['documents']['Row']
@@ -26,8 +28,18 @@ export function MyWay() {
   const [stepSheetOpen, setStepSheetOpen] = useState(false)
   const [editingStep, setEditingStep] = useState<StepRow | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [dark, setDark] = useTheme()
+  const [themeMode, setThemeMode] = useTheme(session?.user.id)
   const [exporting, setExporting] = useState(false)
+  const [savedMeals, setSavedMeals] = useState<SavedMealRow[]>([])
+  const [editingSavedMeal, setEditingSavedMeal] = useState<SavedMealRow | null>(null)
+  const [savedMealSheetOpen, setSavedMealSheetOpen] = useState(false)
+
+  function reloadSavedMeals() {
+    if (!session) return
+    fetchSavedMeals(session.user.id).then(setSavedMeals)
+  }
+
+  useEffect(reloadSavedMeals, [session])
 
   async function handleExport(format: 'json' | 'csv') {
     if (!session) return
@@ -87,6 +99,18 @@ export function MyWay() {
     <div className="px-4 pt-6 pb-10">
       <h1 className="text-2xl font-semibold text-text">Mein Weg</h1>
       <p className="mt-1 text-sm text-text-secondary">Schritte, um die Ursache zu finden</p>
+
+      <Link
+        to="/wissen"
+        className="mt-5 flex items-center gap-3 rounded-2xl border border-border bg-card p-4"
+      >
+        <BookOpen size={22} className="shrink-0 text-primary-text" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-text">Wissen</p>
+          <p className="text-xs text-text-tertiary">FODMAPs, Auslöser, Bristol-Skala & mehr</p>
+        </div>
+        <ChevronRight size={18} className="shrink-0 text-text-tertiary" />
+      </Link>
 
       <div className="mt-5 flex flex-col gap-2">
         {steps.map((step, index) => (
@@ -168,11 +192,37 @@ export function MyWay() {
         ))}
       </div>
 
+      {savedMeals.length > 0 && (
+        <>
+          <h2 className="mt-8 text-lg font-semibold text-text">Meine Mahlzeiten</h2>
+          <div className="mt-3 flex flex-col gap-2">
+            {savedMeals.map((meal) => (
+              <button
+                key={meal.id}
+                type="button"
+                onClick={() => {
+                  setEditingSavedMeal(meal)
+                  setSavedMealSheetOpen(true)
+                }}
+                className="rounded-2xl border border-border bg-card p-4 text-left"
+              >
+                <p className="text-sm font-medium text-text">{meal.name}</p>
+                <p className="truncate text-xs text-text-tertiary">{meal.summary}</p>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       <h2 className="mt-8 text-lg font-semibold text-text">Einstellungen</h2>
       <div className="mt-3 flex flex-col gap-3">
-        <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-4">
-          <span className="text-sm font-medium text-text">Dark Mode</span>
-          <Switch checked={dark} onChange={setDark} />
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-sm font-medium text-text">Darstellung</p>
+          <div className="mt-3 flex gap-2">
+            {(Object.keys(themeModeLabels) as ThemeMode[]).map((mode) => (
+              <ToggleChip key={mode} label={themeModeLabels[mode]} active={themeMode === mode} onClick={() => setThemeMode(mode)} />
+            ))}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-4">
@@ -209,6 +259,13 @@ export function MyWay() {
             onSaved={reload}
           />
           <UploadSheet open={uploadOpen} onClose={() => setUploadOpen(false)} userId={session.user.id} onSaved={reload} />
+          <SavedMealSheet
+            open={savedMealSheetOpen}
+            onClose={() => setSavedMealSheetOpen(false)}
+            userId={session.user.id}
+            existing={editingSavedMeal}
+            onSaved={reloadSavedMeals}
+          />
         </>
       )}
     </div>

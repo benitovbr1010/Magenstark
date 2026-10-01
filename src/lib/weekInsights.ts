@@ -1,4 +1,4 @@
-import { dayTagLabels, flagLabels, markerLabels } from './constants'
+import { dayTagLabels, flagLabels, markerLabels, symptomLabels } from './constants'
 import type { Database } from './database.types'
 import { toDateOnly } from './datetime'
 import { supabase } from './supabaseClient'
@@ -7,6 +7,10 @@ type BowelRow = Database['public']['Tables']['bowel_movements']['Row']
 type WellbeingRow = Database['public']['Tables']['wellbeing']['Row']
 type MarkerKey = keyof typeof markerLabels
 type DayTagKey = keyof typeof dayTagLabels
+type FlagKey = keyof typeof flagLabels
+
+const symptomKeys = Object.keys(symptomLabels) as (keyof typeof symptomLabels)[]
+const flagKeys = Object.keys(flagLabels) as FlagKey[]
 
 const WINDOW_DAYS = 42
 const MIN_DAYS_WITH_DATA = 21
@@ -28,16 +32,16 @@ function round1(n: number): number {
 
 function dailySymptomScore(rows: WellbeingRow[]): number | null {
   if (rows.length === 0) return null
-  const sum = rows.reduce((s, r) => s + r.abdominal_pain + r.bloating + r.nausea + r.fullness + r.urgency, 0)
-  return sum / rows.length / 5
+  const sum = rows.reduce((s, r) => s + symptomKeys.reduce((acc, key) => acc + r[key], 0), 0)
+  return sum / rows.length / symptomKeys.length
 }
 
 function hasBowelSymptom(row: BowelRow): boolean {
-  return row.pain || row.urgent || row.incomplete || row.mucus || row.blood
+  return row.pain || row.urgency > 0 || row.incomplete || row.mucus || row.blood
 }
 
 function hasWellbeingSymptom(row: WellbeingRow): boolean {
-  return row.abdominal_pain > 0 || row.bloating > 0 || row.nausea > 0 || row.fullness > 0 || row.urgency > 0
+  return symptomKeys.some((key) => row[key] > 0)
 }
 
 export async function fetchWeekInsightsStats(userId: string): Promise<WeekInsightsStats | null> {
@@ -83,17 +87,14 @@ export async function fetchWeekInsightsStats(userId: string): Promise<WeekInsigh
 
   const bristolAverage = bowelRows.length ? round1(bowelRows.reduce((s, r) => s + r.bristol, 0) / bowelRows.length) : null
 
-  const flagDefs: { key: keyof Pick<BowelRow, 'pain' | 'urgent' | 'incomplete' | 'mucus' | 'blood'>; label: string }[] = [
-    { key: 'pain', label: flagLabels.pain },
-    { key: 'urgent', label: flagLabels.urgent },
-    { key: 'incomplete', label: flagLabels.incomplete },
-    { key: 'mucus', label: flagLabels.mucus },
-    { key: 'blood', label: flagLabels.blood },
-  ]
   const flagRates = bowelRows.length
-    ? flagDefs
-        .map((f) => ({ label: f.label, percent: Math.round((bowelRows.filter((r) => r[f.key]).length / bowelRows.length) * 100) }))
-        .filter((f) => f.percent > 0)
+    ? [
+        ...flagKeys.map((key) => ({
+          label: flagLabels[key],
+          percent: Math.round((bowelRows.filter((r) => Boolean(r[key])).length / bowelRows.length) * 100),
+        })),
+        { label: 'Dringend', percent: Math.round((bowelRows.filter((r) => r.urgency > 0).length / bowelRows.length) * 100) },
+      ].filter((f) => f.percent > 0)
     : []
 
   const symptomByDay = new Map<string, number>()

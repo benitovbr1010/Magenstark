@@ -4,6 +4,7 @@ import { useAuth } from './lib/AuthContext'
 import { BowelMovement } from './screens/BowelMovement'
 import { DayClosing } from './screens/DayClosing'
 import { Document } from './screens/Document'
+import { Knowledge } from './screens/Knowledge'
 import { Login } from './screens/Login'
 import { Meal } from './screens/Meal'
 import { MyWay } from './screens/MyWay'
@@ -45,6 +46,7 @@ export default function App() {
       <Route path="/mahlzeit" element={<CaptureLayout><Meal /></CaptureLayout>} />
       <Route path="/tagesabschluss" element={<CaptureLayout><DayClosing /></CaptureLayout>} />
       <Route path="/dokument" element={<CaptureLayout><Document /></CaptureLayout>} />
+      <Route path="/wissen" element={<CaptureLayout><Knowledge /></CaptureLayout>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

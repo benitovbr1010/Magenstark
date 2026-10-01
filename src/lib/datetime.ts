@@ -9,6 +9,42 @@ export function fromDatetimeLocalValue(value: string): Date {
   return new Date(value)
 }
 
+export function toDateInputValue(date: Date): string {
+  return toDateOnly(date)
+}
+
+export function toTimeInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** Übernimmt das Datum aus datePart (YYYY-MM-DD) und die Uhrzeit aus base. */
+export function withDatePart(base: Date, datePart: string): Date {
+  const [y, m, d] = datePart.split('-').map(Number)
+  const next = new Date(base)
+  if (y && m && d) next.setFullYear(y, m - 1, d)
+  return next
+}
+
+/** Übernimmt die Uhrzeit aus timePart (HH:MM) und das Datum aus base. */
+export function withTimePart(base: Date, timePart: string): Date {
+  const [h, min] = timePart.split(':').map(Number)
+  const next = new Date(base)
+  if (!Number.isNaN(h) && !Number.isNaN(min)) next.setHours(h, min, 0, 0)
+  return next
+}
+
+/** Aktuelle Uhrzeit, aber am angegebenen Kalendertag (für rückwirkend ausgewählte Tage). */
+export function nowOnDate(date: Date): Date {
+  return withDatePart(new Date(), toDateOnly(date))
+}
+
+export function minutesAgo(minutes: number, from = new Date()): Date {
+  const next = new Date(from)
+  next.setMinutes(next.getMinutes() - minutes)
+  return next
+}
+
 export function formatGermanDateTime(date: Date): string {
   const datePart = date.toLocaleDateString('de-DE', {
     weekday: 'long',

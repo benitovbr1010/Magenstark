@@ -6,6 +6,7 @@ import { ToggleChip } from '../components/ToggleChip'
 import { useAuth } from '../lib/AuthContext'
 import { situationLabels, symptomLabels } from '../lib/constants'
 import { fetchLatestContext, type ActiveContext } from '../lib/context'
+import { withDatePart } from '../lib/datetime'
 import { supabase } from '../lib/supabaseClient'
 
 const moodColors = ['#E6E9E7', '#C9D2CB', '#A9BBAE', '#8CA791', '#6F8A74']
@@ -16,8 +17,9 @@ export function Wellbeing() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
+  const dateParam = searchParams.get('date')
   const { session } = useAuth()
-  const [occurredAt, setOccurredAt] = useState(new Date())
+  const [occurredAt, setOccurredAt] = useState(() => (dateParam ? withDatePart(new Date(), dateParam) : new Date()))
   const [mood, setMood] = useState<1 | 2 | 3 | 4 | 5 | null>(null)
   const [sliders, setSliders] = useState<Record<keyof typeof symptomLabels, number>>({
     abdominal_pain: 0,
@@ -25,6 +27,9 @@ export function Wellbeing() {
     nausea: 0,
     fullness: 0,
     urgency: 0,
+    stress: 0,
+    rumbling: 0,
+    heartburn: 0,
   })
   const [situation, setSituation] = useState<keyof typeof situationLabels | null>(null)
   const [toiletReachable, setToiletReachable] = useState<boolean | null>(null)
@@ -55,6 +60,9 @@ export function Wellbeing() {
             nausea: data.nausea,
             fullness: data.fullness,
             urgency: data.urgency,
+            stress: data.stress,
+            rumbling: data.rumbling,
+            heartburn: data.heartburn,
           })
           setSituation((data.situation as keyof typeof situationLabels) ?? null)
           setToiletReachable(data.toilet_reachable)
@@ -102,12 +110,11 @@ export function Wellbeing() {
 
   return (
     <div className="pb-10">
-      <ScreenHeader
-        title="Wie geht es dir?"
-        subtitleSlot={<DateTimeField value={occurredAt} onChange={setOccurredAt} variant="plain" />}
-      />
+      <ScreenHeader title="Wie geht es dir?" />
 
-      <div className="mt-6 flex flex-col gap-6 px-4">
+      <div className="mt-4 flex flex-col gap-6 px-4">
+        <DateTimeField value={occurredAt} onChange={setOccurredAt} />
+
         <div>
           <div className="flex items-center justify-between px-1">
             <span className="text-sm text-text-tertiary">schlecht</span>

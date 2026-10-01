@@ -10,10 +10,15 @@ export const bristolLabels: Record<1 | 2 | 3 | 4 | 5 | 6 | 7, string> = {
 
 export const flagLabels = {
   pain: 'Schmerzen',
-  urgent: 'Dringend',
   incomplete: 'Unvollständig',
   mucus: 'Schleim',
   blood: 'Blut',
+} as const
+
+export const urgencyLabels = {
+  0: 'nicht',
+  1: 'leicht',
+  2: 'stark',
 } as const
 
 export const symptomLabels = {
@@ -22,6 +27,9 @@ export const symptomLabels = {
   nausea: 'Übelkeit',
   fullness: 'Völlegefühl',
   urgency: 'Stuhldrang',
+  stress: 'Stress',
+  rumbling: 'Rumpeln/Darmgeräusche',
+  heartburn: 'Sodbrennen',
 } as const
 
 export const situationLabels = {
@@ -56,6 +64,9 @@ export const markerLabels = {
 export const goodMarkerLabels = {
   ballaststoffe: 'Ballaststoffe',
   gemuese: 'Gemüse',
+  obst_fodmap_arm: 'FODMAP-armes Obst',
+  fermentiert: 'Fermentiert',
+  gesunde_fette: 'Gesunde Fette',
   ausreichend_getrunken: 'Ausreichend getrunken',
 } as const
 
@@ -94,6 +105,12 @@ export const dayTagLabels = {
   ruhiger_tag: 'Ruhiger Tag',
 } as const
 
+export const themeModeLabels = {
+  light: 'Hell',
+  dark: 'Dunkel',
+  system: 'System',
+} as const
+
 const symptomPhrases: Record<keyof typeof symptomLabels, Record<'leicht' | 'mittel' | 'stark', string>> = {
   abdominal_pain: {
     leicht: 'leichte Bauchschmerzen',
@@ -108,6 +125,9 @@ const symptomPhrases: Record<keyof typeof symptomLabels, Record<'leicht' | 'mitt
     stark: 'starkes Völlegefühl',
   },
   urgency: { leicht: 'leichter Stuhldrang', mittel: 'mittlerer Stuhldrang', stark: 'starker Stuhldrang' },
+  stress: { leicht: 'leichter Stress', mittel: 'mittlerer Stress', stark: 'starker Stress' },
+  rumbling: { leicht: 'leichtes Rumpeln', mittel: 'mittleres Rumpeln', stark: 'starkes Rumpeln' },
+  heartburn: { leicht: 'leichtes Sodbrennen', mittel: 'mittleres Sodbrennen', stark: 'starkes Sodbrennen' },
 }
 
 export function describeStrongestSymptom(values: Record<keyof typeof symptomLabels, number>): string {

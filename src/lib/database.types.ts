@@ -52,7 +52,7 @@ export type Database = {
           pain: boolean
           phase: string | null
           place: string | null
-          urgent: boolean
+          urgency: number
           user_id: string
         }
         Insert: {
@@ -67,7 +67,7 @@ export type Database = {
           pain?: boolean
           phase?: string | null
           place?: string | null
-          urgent?: boolean
+          urgency?: number
           user_id?: string
         }
         Update: {
@@ -82,7 +82,7 @@ export type Database = {
           pain?: boolean
           phase?: string | null
           place?: string | null
-          urgent?: boolean
+          urgency?: number
           user_id?: string
         }
         Relationships: []
@@ -254,6 +254,7 @@ export type Database = {
         Row: {
           created_at: string
           eaten_at: string
+          good_foods: string[]
           good_markers: string[]
           id: string
           main_foods: string[]
@@ -268,6 +269,7 @@ export type Database = {
         Insert: {
           created_at?: string
           eaten_at: string
+          good_foods?: string[]
           good_markers?: string[]
           id?: string
           main_foods?: string[]
@@ -282,6 +284,7 @@ export type Database = {
         Update: {
           created_at?: string
           eaten_at?: string
+          good_foods?: string[]
           good_markers?: string[]
           id?: string
           main_foods?: string[]
@@ -302,6 +305,7 @@ export type Database = {
           medications: string | null
           name: string | null
           symptoms_since: string | null
+          theme_preference: string | null
         }
         Insert: {
           created_at?: string
@@ -309,6 +313,7 @@ export type Database = {
           medications?: string | null
           name?: string | null
           symptoms_since?: string | null
+          theme_preference?: string | null
         }
         Update: {
           created_at?: string
@@ -316,6 +321,49 @@ export type Database = {
           medications?: string | null
           name?: string | null
           symptoms_since?: string | null
+          theme_preference?: string | null
+        }
+        Relationships: []
+      }
+      saved_meals: {
+        Row: {
+          created_at: string
+          fodmap_sources: string[]
+          good_foods: string[]
+          good_markers: string[]
+          id: string
+          main_foods: string[]
+          markers: string[]
+          meal_type: string
+          name: string
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fodmap_sources?: string[]
+          good_foods?: string[]
+          good_markers?: string[]
+          id?: string
+          main_foods?: string[]
+          markers?: string[]
+          meal_type?: string
+          name: string
+          summary: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          fodmap_sources?: string[]
+          good_foods?: string[]
+          good_markers?: string[]
+          id?: string
+          main_foods?: string[]
+          markers?: string[]
+          meal_type?: string
+          name?: string
+          summary?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -352,12 +400,37 @@ export type Database = {
         }
         Relationships: []
       }
+      water_logs: {
+        Row: {
+          amount_ml: number
+          created_at: string
+          drunk_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          amount_ml?: number
+          created_at?: string
+          drunk_at?: string
+          id?: string
+          user_id?: string
+        }
+        Update: {
+          amount_ml?: number
+          created_at?: string
+          drunk_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       wellbeing: {
         Row: {
           abdominal_pain: number
           bloating: number
           created_at: string
           fullness: number
+          heartburn: number
           id: string
           mood: number
           nausea: number
@@ -365,7 +438,9 @@ export type Database = {
           occurred_at: string
           phase: string | null
           place: string | null
+          rumbling: number
           situation: string | null
+          stress: number
           toilet_reachable: boolean | null
           urgency: number
           user_id: string
@@ -375,6 +450,7 @@ export type Database = {
           bloating?: number
           created_at?: string
           fullness?: number
+          heartburn?: number
           id?: string
           mood: number
           nausea?: number
@@ -382,7 +458,9 @@ export type Database = {
           occurred_at?: string
           phase?: string | null
           place?: string | null
+          rumbling?: number
           situation?: string | null
+          stress?: number
           toilet_reachable?: boolean | null
           urgency?: number
           user_id?: string
@@ -392,6 +470,7 @@ export type Database = {
           bloating?: number
           created_at?: string
           fullness?: number
+          heartburn?: number
           id?: string
           mood?: number
           nausea?: number
@@ -399,7 +478,9 @@ export type Database = {
           occurred_at?: string
           phase?: string | null
           place?: string | null
+          rumbling?: number
           situation?: string | null
+          stress?: number
           toilet_reachable?: boolean | null
           urgency?: number
           user_id?: string

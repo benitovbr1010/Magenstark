@@ -20,7 +20,7 @@ const MARKERS = [
   'alkohol',
   'kohlensaeure',
 ] as const
-const GOOD_MARKERS = ['ballaststoffe', 'gemuese', 'ausreichend_getrunken'] as const
+const GOOD_MARKERS = ['ballaststoffe', 'gemuese', 'obst_fodmap_arm', 'fermentiert', 'gesunde_fette', 'ausreichend_getrunken'] as const
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,9 +39,14 @@ const analyzeMealTool = {
       main_foods: { type: 'array', items: { type: 'string' }, description: 'Hauptzutaten/Lebensmittel, max 6' },
       markers: { type: 'array', items: { type: 'string', enum: MARKERS as unknown as string[] } },
       good_markers: { type: 'array', items: { type: 'string', enum: GOOD_MARKERS as unknown as string[] } },
+      good_foods: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Konkrete gut verträgliche Zutaten aus der Mahlzeit, z. B. Haferflocken, Karotte, Reis, Flohsamen (nicht nur Kategorien)',
+      },
       fodmap_sources: { type: 'array', items: { type: 'string' }, description: 'Konkrete FODMAP-Quellen falls fodmap_hoch gesetzt ist' },
     },
-    required: ['meal_type', 'eaten_at_hint', 'summary', 'main_foods', 'markers', 'good_markers', 'fodmap_sources'],
+    required: ['meal_type', 'eaten_at_hint', 'summary', 'main_foods', 'markers', 'good_markers', 'good_foods', 'fodmap_sources'],
   },
 }
 
@@ -72,7 +77,10 @@ Deno.serve(async (req) => {
         system:
           'Du wertest kurze deutsche Freitext-Beschreibungen von Mahlzeiten für ein Verdauungstagebuch aus. ' +
           'Nimm typische Zutaten realistisch an (z. B. Bolognese enthält meist Zwiebel/Knoblauch), aber setze bei ' +
-          'Unsicherheit lieber keinen Marker statt zu raten. Ton: sachlich, kurz.',
+          'Unsicherheit lieber keinen Marker statt zu raten. ' +
+          'Nenne bei good_foods konkrete, namentlich erkennbare gut verträgliche Zutaten aus der Mahlzeit (z. B. Haferflocken, ' +
+          'Karotte, Reis, Flohsamen, Banane, Kiwi, Joghurt) statt nur allgemeiner Kategorien. Wenn keine solchen Zutaten ' +
+          'erkennbar sind, lass good_foods leer. Ton: sachlich, kurz.',
         messages: [
           {
             role: 'user',
@@ -108,6 +116,7 @@ Deno.serve(async (req) => {
       main_foods: string[]
       markers: string[]
       good_markers: string[]
+      good_foods: string[]
       fodmap_sources: string[]
     }
 
@@ -118,6 +127,7 @@ Deno.serve(async (req) => {
       main_foods: (input.main_foods ?? []).slice(0, 6),
       markers: (input.markers ?? []).filter((m) => MARKERS.includes(m as (typeof MARKERS)[number])),
       good_markers: (input.good_markers ?? []).filter((m) => GOOD_MARKERS.includes(m as (typeof GOOD_MARKERS)[number])),
+      good_foods: input.good_foods ?? [],
       fodmap_sources: input.fodmap_sources ?? [],
     }
 

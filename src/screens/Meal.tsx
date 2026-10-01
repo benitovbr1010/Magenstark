@@ -1,13 +1,19 @@
-import { Soup } from 'lucide-react'
+import { Info, Soup } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DateTimeField } from '../components/DateTimeField'
+import { KnowledgeSheet } from '../components/KnowledgeSheet'
+import { MarkerChip } from '../components/MarkerChip'
 import { ScreenHeader } from '../components/ScreenHeader'
+import { SavedMealSheet, type SavedMealDraft } from '../components/SavedMealSheet'
 import { ToggleChip } from '../components/ToggleChip'
 import { VoiceRecorder } from '../components/VoiceRecorder'
 import { useAuth } from '../lib/AuthContext'
 import { goodMarkerLabels, markerLabels, mealTypeLabels } from '../lib/constants'
 import { fetchLatestContext, type ActiveContext } from '../lib/context'
+import { withDatePart } from '../lib/datetime'
+import { goodMarkerArticle, markerArticle, type KnowledgeArticle } from '../lib/knowledge'
+import { fetchSavedMeals, type SavedMealRow } from '../lib/savedMeals'
 import { supabase } from '../lib/supabaseClient'
 
 type MealType = keyof typeof mealTypeLabels
@@ -26,6 +32,7 @@ export function Meal() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
+  const dateParam = searchParams.get('date')
   const { session } = useAuth()
 
   const [rawText, setRawText] = useState('')
@@ -33,21 +40,31 @@ export function Meal() {
   const [analyzed, setAnalyzed] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [editingSummary, setEditingSummary] = useState(false)
+  const [infoArticle, setInfoArticle] = useState<KnowledgeArticle | null>(null)
 
-  const [eatenAt, setEatenAt] = useState(new Date())
+  const [eatenAt, setEatenAt] = useState(() => (dateParam ? withDatePart(new Date(), dateParam) : new Date()))
   const [mealType, setMealType] = useState<MealType>('snack')
   const [summary, setSummary] = useState('')
   const [mainFoods, setMainFoods] = useState<string[]>([])
   const [markers, setMarkers] = useState<Marker[]>([])
   const [goodMarkers, setGoodMarkers] = useState<GoodMarker[]>([])
+  const [goodFoods, setGoodFoods] = useState<string[]>([])
 
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(!!editId)
   const [activeContext, setActiveContext] = useState<ActiveContext | null>(null)
 
+  const [savedMeals, setSavedMeals] = useState<SavedMealRow[]>([])
+  const [saveMealSheetOpen, setSaveMealSheetOpen] = useState(false)
+
   useEffect(() => {
     if (editId || !session) return
     fetchLatestContext(session.user.id).then(setActiveContext)
+  }, [editId, session])
+
+  useEffect(() => {
+    if (editId || !session) return
+    fetchSavedMeals(session.user.id).then(setSavedMeals)
   }, [editId, session])
 
   useEffect(() => {
@@ -66,6 +83,7 @@ export function Meal() {
           setMainFoods(data.main_foods)
           setMarkers(data.markers as Marker[])
           setGoodMarkers(data.good_markers as GoodMarker[])
+          setGoodFoods(data.good_foods ?? [])
           setAnalyzed(true)
         }
         setLoading(false)
@@ -80,13 +98,12 @@ export function Meal() {
     setGoodMarkers((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
   }
 
-  async function handleAnalyze() {
-    if (!rawText.trim()) return
+  async function runAnalysis(text: string, keepTime: boolean) {
     setAnalyzing(true)
     setAnalyzeError(null)
     const now = new Date()
     const { data, error } = await supabase.functions.invoke('analyze-meal', {
-      body: { text: rawText, currentTime: now.toISOString() },
+      body: { text, currentTime: now.toISOString() },
     })
     setAnalyzing(false)
     if (error || !data) {
@@ -98,16 +115,40 @@ export function Meal() {
     setMainFoods(data.main_foods ?? [])
     setMarkers(data.markers ?? [])
     setGoodMarkers(data.good_markers ?? [])
-    if (data.eaten_at_hint) {
-      const [h, m] = data.eaten_at_hint.split(':').map(Number)
-      if (!Number.isNaN(h) && !Number.isNaN(m)) {
-        const withHint = new Date(now)
-        withHint.setHours(h, m, 0, 0)
-        setEatenAt(withHint)
+    setGoodFoods(data.good_foods ?? [])
+    if (!keepTime) {
+      if (data.eaten_at_hint) {
+        const [h, m] = data.eaten_at_hint.split(':').map(Number)
+        if (!Number.isNaN(h) && !Number.isNaN(m)) {
+          const withHint = new Date(now)
+          withHint.setHours(h, m, 0, 0)
+          setEatenAt(withHint)
+        }
+      } else {
+        setEatenAt(now)
       }
-    } else {
-      setEatenAt(now)
     }
+    setAnalyzed(true)
+  }
+
+  async function handleAnalyze() {
+    if (!rawText.trim()) return
+    await runAnalysis(rawText, false)
+  }
+
+  async function handleReanalyze() {
+    if (!rawText.trim()) return
+    await runAnalysis(rawText, true)
+  }
+
+  function applySavedMeal(meal: SavedMealRow) {
+    setRawText(meal.name)
+    setMealType(meal.meal_type as MealType)
+    setSummary(meal.summary)
+    setMainFoods(meal.main_foods)
+    setMarkers(meal.markers as Marker[])
+    setGoodMarkers(meal.good_markers as GoodMarker[])
+    setGoodFoods(meal.good_foods)
     setAnalyzed(true)
   }
 
@@ -123,6 +164,7 @@ export function Meal() {
       main_foods: mainFoods,
       markers,
       good_markers: goodMarkers,
+      good_foods: goodFoods,
       ...(editId ? {} : { place: activeContext?.place ?? null, phase: activeContext?.phase ?? null }),
     }
     const { error } = editId
@@ -150,17 +192,44 @@ export function Meal() {
 
   const markerChips = capChips(markers)
   const goodChips = capChips(goodMarkers)
+  const savedMealDraft: SavedMealDraft = {
+    summary,
+    meal_type: mealType,
+    main_foods: mainFoods,
+    markers,
+    good_markers: goodMarkers,
+    good_foods: goodFoods,
+    fodmap_sources: [],
+  }
 
   return (
     <div className="pb-10">
-      <ScreenHeader
-        title="Eintrag erfassen"
-        subtitleSlot={<DateTimeField value={eatenAt} onChange={setEatenAt} variant="plain" />}
-      />
+      <ScreenHeader title="Eintrag erfassen" />
 
-      <div className="mt-6 flex flex-col gap-6 px-4">
+      <div className="mt-4 flex flex-col gap-6 px-4">
+        <DateTimeField value={eatenAt} onChange={setEatenAt} />
+
         {!analyzed ? (
           <>
+            {!editId && savedMeals.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-text">Meine Mahlzeiten</p>
+                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                  {savedMeals.map((meal) => (
+                    <button
+                      key={meal.id}
+                      type="button"
+                      onClick={() => applySavedMeal(meal)}
+                      className="shrink-0 rounded-2xl border border-border bg-card px-4 py-3 text-left"
+                    >
+                      <p className="text-sm font-medium text-text">{meal.name}</p>
+                      <p className="max-w-[10rem] truncate text-xs text-text-tertiary">{meal.summary}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-start gap-3">
               <textarea
                 value={rawText}
@@ -208,9 +277,12 @@ export function Meal() {
                   <p className="text-xs text-text-tertiary">Mögliche Auslöser</p>
                   <div className="mt-1 flex flex-wrap gap-2">
                     {markerChips.shown.map((m) => (
-                      <span key={m} className="rounded-full bg-warning-light px-3 py-1 text-xs text-warning">
-                        {markerLabels[m]}
-                      </span>
+                      <MarkerChip
+                        key={m}
+                        label={markerLabels[m]}
+                        tone="warning"
+                        onInfo={() => setInfoArticle(markerArticle(m, markerLabels[m]))}
+                      />
                     ))}
                     {markerChips.extra > 0 && (
                       <span className="rounded-full bg-card px-3 py-1 text-xs text-text-tertiary">
@@ -223,12 +295,15 @@ export function Meal() {
 
               {goodChips.shown.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-xs text-text-tertiary">Gut</p>
+                  <p className="text-xs text-text-tertiary">Gut für dich</p>
                   <div className="mt-1 flex flex-wrap gap-2">
                     {goodChips.shown.map((m) => (
-                      <span key={m} className="rounded-full bg-primary-light px-3 py-1 text-xs text-primary-text">
-                        {goodMarkerLabels[m]}
-                      </span>
+                      <MarkerChip
+                        key={m}
+                        label={goodMarkerLabels[m]}
+                        tone="primary"
+                        onInfo={() => setInfoArticle(goodMarkerArticle(m, goodMarkerLabels[m]))}
+                      />
                     ))}
                     {goodChips.extra > 0 && (
                       <span className="rounded-full bg-card px-3 py-1 text-xs text-text-tertiary">
@@ -236,6 +311,9 @@ export function Meal() {
                       </span>
                     )}
                   </div>
+                  {goodFoods.length > 0 && (
+                    <p className="mt-2 text-xs text-text-secondary">Konkret gut: {goodFoods.join(', ')}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -257,6 +335,23 @@ export function Meal() {
                 </div>
 
                 <textarea
+                  value={rawText}
+                  onChange={(e) => setRawText(e.target.value)}
+                  rows={4}
+                  placeholder="Was hast du gegessen?"
+                  className="rounded-2xl border border-border bg-card px-4 py-3 text-text outline-none focus:border-primary"
+                />
+                <button
+                  type="button"
+                  disabled={!rawText.trim() || analyzing}
+                  onClick={handleReanalyze}
+                  className="self-start rounded-full border border-border px-4 py-2 text-sm font-medium text-primary-text disabled:opacity-40"
+                >
+                  {analyzing ? 'Wird neu ausgewertet …' : 'Neu analysieren'}
+                </button>
+                {analyzeError && <p className="text-sm text-warning">{analyzeError}</p>}
+
+                <textarea
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
                   rows={2}
@@ -267,27 +362,45 @@ export function Meal() {
                   <p className="text-sm font-medium text-text">Mögliche Auslöser</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {markerKeys.map((key) => (
-                      <ToggleChip
-                        key={key}
-                        label={markerLabels[key]}
-                        active={markers.includes(key)}
-                        onClick={() => toggleMarker(key)}
-                        tone="warning"
-                      />
+                      <div key={key} className="flex items-center gap-1">
+                        <ToggleChip
+                          label={markerLabels[key]}
+                          active={markers.includes(key)}
+                          onClick={() => toggleMarker(key)}
+                          tone="warning"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setInfoArticle(markerArticle(key, markerLabels[key]))}
+                          className="text-text-tertiary"
+                          aria-label={`Info zu ${markerLabels[key]}`}
+                        >
+                          <Info size={14} />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-sm font-medium text-text">Gut</p>
+                  <p className="text-sm font-medium text-text">Gut für dich</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {goodMarkerKeys.map((key) => (
-                      <ToggleChip
-                        key={key}
-                        label={goodMarkerLabels[key]}
-                        active={goodMarkers.includes(key)}
-                        onClick={() => toggleGoodMarker(key)}
-                      />
+                      <div key={key} className="flex items-center gap-1">
+                        <ToggleChip
+                          label={goodMarkerLabels[key]}
+                          active={goodMarkers.includes(key)}
+                          onClick={() => toggleGoodMarker(key)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setInfoArticle(goodMarkerArticle(key, goodMarkerLabels[key]))}
+                          className="text-text-tertiary"
+                          aria-label={`Info zu ${goodMarkerLabels[key]}`}
+                        >
+                          <Info size={14} />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -303,13 +416,22 @@ export function Meal() {
               {saving ? 'Speichern …' : editId ? 'Eintrag aktualisieren' : 'Eintrag speichern'}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setEditingSummary((v) => !v)}
-              className="text-sm font-medium text-primary-text"
-            >
-              {editingSummary ? 'Fertig' : 'Bearbeiten'}
-            </button>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setEditingSummary((v) => !v)}
+                className="text-sm font-medium text-primary-text"
+              >
+                {editingSummary ? 'Fertig' : 'Bearbeiten'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSaveMealSheetOpen(true)}
+                className="text-sm font-medium text-primary-text"
+              >
+                Als eigene Mahlzeit merken
+              </button>
+            </div>
 
             {editId && (
               <button
@@ -324,6 +446,18 @@ export function Meal() {
           </>
         )}
       </div>
+
+      {session && (
+        <SavedMealSheet
+          open={saveMealSheetOpen}
+          onClose={() => setSaveMealSheetOpen(false)}
+          userId={session.user.id}
+          draft={savedMealDraft}
+          onSaved={() => fetchSavedMeals(session.user.id).then(setSavedMeals)}
+        />
+      )}
+
+      <KnowledgeSheet article={infoArticle} onClose={() => setInfoArticle(null)} />
     </div>
   )
 }

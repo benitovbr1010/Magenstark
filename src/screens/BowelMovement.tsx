@@ -5,23 +5,26 @@ import { DateTimeField } from '../components/DateTimeField'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { ToggleChip } from '../components/ToggleChip'
 import { useAuth } from '../lib/AuthContext'
-import { bristolLabels, flagLabels } from '../lib/constants'
+import { bristolLabels, flagLabels, urgencyLabels } from '../lib/constants'
 import { fetchLatestContext, type ActiveContext } from '../lib/context'
+import { withDatePart } from '../lib/datetime'
 import { supabase } from '../lib/supabaseClient'
 
 const bristolValues = [1, 2, 3, 4, 5, 6, 7] as const
 const flagKeys = Object.keys(flagLabels) as (keyof typeof flagLabels)[]
+const urgencyValues = [0, 1, 2] as const
 
 export function BowelMovement() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
+  const dateParam = searchParams.get('date')
   const { session } = useAuth()
-  const [occurredAt, setOccurredAt] = useState(new Date())
+  const [occurredAt, setOccurredAt] = useState(() => (dateParam ? withDatePart(new Date(), dateParam) : new Date()))
   const [bristol, setBristol] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | null>(null)
+  const [urgency, setUrgency] = useState<0 | 1 | 2>(0)
   const [flags, setFlags] = useState<Record<keyof typeof flagLabels, boolean>>({
     pain: false,
-    urgent: false,
     incomplete: false,
     mucus: false,
     blood: false,
@@ -47,9 +50,9 @@ export function BowelMovement() {
         if (data) {
           setOccurredAt(new Date(data.occurred_at))
           setBristol(data.bristol as 1 | 2 | 3 | 4 | 5 | 6 | 7)
+          setUrgency(data.urgency as 0 | 1 | 2)
           setFlags({
             pain: data.pain,
-            urgent: data.urgent,
             incomplete: data.incomplete,
             mucus: data.mucus,
             blood: data.blood,
@@ -71,6 +74,7 @@ export function BowelMovement() {
       user_id: session.user.id,
       occurred_at: occurredAt.toISOString(),
       bristol,
+      urgency,
       ...flags,
       note: note.trim() || null,
       ...(editId ? {} : { place: activeContext?.place ?? null, phase: activeContext?.phase ?? null }),
@@ -100,12 +104,11 @@ export function BowelMovement() {
 
   return (
     <div className="pb-10">
-      <ScreenHeader
-        title="Toilettengang"
-        subtitleSlot={<DateTimeField value={occurredAt} onChange={setOccurredAt} variant="plain" />}
-      />
+      <ScreenHeader title="Toilettengang" />
 
-      <div className="mt-6 flex flex-col gap-6 px-4">
+      <div className="mt-4 flex flex-col gap-6 px-4">
+        <DateTimeField value={occurredAt} onChange={setOccurredAt} />
+
         <div className="grid grid-cols-2 gap-3">
           {bristolValues.map((value) => (
             <button
@@ -124,6 +127,20 @@ export function BowelMovement() {
               </span>
             </button>
           ))}
+        </div>
+
+        <div>
+          <p className="text-sm font-medium text-text">Dringend</p>
+          <div className="mt-2 flex gap-2">
+            {urgencyValues.map((value) => (
+              <ToggleChip
+                key={value}
+                label={urgencyLabels[value]}
+                active={urgency === value}
+                onClick={() => setUrgency(value)}
+              />
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">

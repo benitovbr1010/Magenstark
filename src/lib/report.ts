@@ -1,10 +1,10 @@
-import { symptomLabels } from './constants'
-import type { Database } from './database.types'
+import { flagLabels, symptomLabels } from './constants'
 import { toDateOnly } from './datetime'
 import type { Profile } from './profile'
 import { supabase } from './supabaseClient'
+import { fetchWaterLogs, totalMl } from './water'
 
-type BowelRow = Database['public']['Tables']['bowel_movements']['Row']
+type FlagKey = keyof typeof flagLabels
 
 export type ReportData = {
   from: Date
@@ -20,17 +20,12 @@ export type ReportData = {
   placeDays: { place: string; days: number }[]
   avgStress: number | null
   avgSleep: number | null
+  avgWaterMlPerDay: number
   documents: { title: string; docDate: string | null; summary: string | null }[]
   savedQuestions: string[]
 }
 
-const flagDefs: { key: keyof Pick<BowelRow, 'pain' | 'urgent' | 'incomplete' | 'mucus' | 'blood'>; label: string }[] = [
-  { key: 'pain', label: 'Schmerzen' },
-  { key: 'urgent', label: 'Dringend' },
-  { key: 'incomplete', label: 'Unvollständig' },
-  { key: 'mucus', label: 'Schleim' },
-  { key: 'blood', label: 'Blut' },
-]
+const flagKeys = Object.keys(flagLabels) as FlagKey[]
 
 const markerDefs: { key: 'gluten' | 'laktose' | 'fodmap_hoch'; label: string }[] = [
   { key: 'gluten', label: 'Gluten' },
@@ -44,7 +39,7 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
   const dateFrom = toDateOnly(from)
   const dateTo = toDateOnly(to)
 
-  const [profileRes, bowelRes, wellbeingRes, mealsRes, dayClosingsRes, documentsRes, questionsRes] = await Promise.all([
+  const [profileRes, bowelRes, wellbeingRes, mealsRes, dayClosingsRes, documentsRes, questionsRes, waterRows] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
     supabase
       .from('bowel_movements')
@@ -62,6 +57,7 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
       .order('doc_date', { ascending: false })
       .limit(5),
     supabase.from('doctor_questions').select('text').eq('user_id', userId).eq('saved', true),
+    fetchWaterLogs(userId, from, to),
   ])
 
   const bowelRows = bowelRes.data ?? []
@@ -77,10 +73,13 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
   })
 
   const bristolCounts = [1, 2, 3, 4, 5, 6, 7].map((value) => bowelRows.filter((row) => row.bristol === value).length)
-  const flagCounts = flagDefs.map(({ key, label }) => ({
-    label,
-    count: bowelRows.filter((row) => Boolean(row[key])).length,
-  }))
+  const flagCounts = [
+    ...flagKeys.map((key) => ({
+      label: flagLabels[key],
+      count: bowelRows.filter((row) => Boolean(row[key])).length,
+    })),
+    { label: 'Dringend', count: bowelRows.filter((row) => row.urgency > 0).length },
+  ]
 
   const foodCounts = new Map<string, number>()
   for (const meal of mealRows) {
@@ -136,6 +135,9 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
   }))
   const savedQuestions = (questionsRes.data ?? []).map((q) => q.text)
 
+  const numberOfDays = Math.max(1, Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)) + 1)
+  const avgWaterMlPerDay = totalMl(waterRows) / numberOfDays
+
   return {
     from,
     to,
@@ -150,6 +152,7 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
     placeDays,
     avgStress,
     avgSleep,
+    avgWaterMlPerDay,
     documents,
     savedQuestions,
   }

@@ -7,6 +7,7 @@ import type { Database } from '../lib/database.types'
 import { endOfDay, getWeekDates, startOfDay, toDateOnly } from '../lib/datetime'
 import { supabase } from '../lib/supabaseClient'
 import { fetchWeekInsights, fetchWeekInsightsStats } from '../lib/weekInsights'
+import { fetchWaterLogs, formatLiters, totalMl, type WaterLogRow } from '../lib/water'
 
 type BowelRow = Database['public']['Tables']['bowel_movements']['Row']
 type WellbeingRow = Database['public']['Tables']['wellbeing']['Row']
@@ -29,11 +30,20 @@ function formatWeekRange(days: Date[]): string {
 }
 
 function hasBowelSymptom(row: BowelRow): boolean {
-  return row.pain || row.urgent || row.incomplete || row.mucus || row.blood
+  return row.pain || row.urgency > 0 || row.incomplete || row.mucus || row.blood
 }
 
 function hasWellbeingSymptom(row: WellbeingRow): boolean {
-  return row.abdominal_pain > 0 || row.bloating > 0 || row.nausea > 0 || row.fullness > 0 || row.urgency > 0
+  return (
+    row.abdominal_pain > 0 ||
+    row.bloating > 0 ||
+    row.nausea > 0 ||
+    row.fullness > 0 ||
+    row.urgency > 0 ||
+    row.stress > 0 ||
+    row.rumbling > 0 ||
+    row.heartburn > 0
+  )
 }
 
 export function Week() {
@@ -43,6 +53,7 @@ export function Week() {
   const [wellbeingRows, setWellbeingRows] = useState<WellbeingRow[]>([])
   const [mealRows, setMealRows] = useState<MealRow[]>([])
   const [dayClosingRows, setDayClosingRows] = useState<DayClosingRow[]>([])
+  const [waterLogs, setWaterLogs] = useState<WaterLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [reportOpen, setReportOpen] = useState(false)
   const [enoughDataForInsights, setEnoughDataForInsights] = useState<boolean | null>(null)
@@ -89,12 +100,14 @@ export function Week() {
         .eq('user_id', session.user.id)
         .gte('date', dateFrom)
         .lte('date', dateTo),
-    ]).then(([bowelRes, wellbeingRes, mealsRes, dayClosingsRes]) => {
+      fetchWaterLogs(session.user.id, startOfDay(days[0]), endOfDay(days[6])),
+    ]).then(([bowelRes, wellbeingRes, mealsRes, dayClosingsRes, waterRes]) => {
       if (cancelled) return
       setBowelRows(bowelRes.data ?? [])
       setWellbeingRows(wellbeingRes.data ?? [])
       setMealRows(mealsRes.data ?? [])
       setDayClosingRows(dayClosingsRes.data ?? [])
+      setWaterLogs(waterRes)
       setLoading(false)
     })
 
@@ -171,6 +184,9 @@ export function Week() {
   }
   const placeEntries = Array.from(placeStats.entries()).sort((a, b) => b[1].total - a[1].total)
 
+  const avgWaterMlPerDay = totalMl(waterLogs) / 7
+  const avgGlassesPerDay = waterLogs.length / 7
+
   return (
     <div className="px-4 pt-6 pb-10">
       <h1 className="text-2xl font-semibold text-text">Woche</h1>
@@ -234,9 +250,17 @@ export function Week() {
             </svg>
           </div>
 
-          {(markerCounts.length > 0 || goodMarkerCounts.length > 0) && (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="text-sm font-medium text-text-tertiary">Trinken</p>
+            <p className="mt-1 text-2xl font-semibold text-text">{formatLiters(avgWaterMlPerDay)}</p>
+            <p className="text-xs text-text-tertiary">
+              Ø pro Tag · {avgGlassesPerDay.toLocaleString('de-DE', { maximumFractionDigits: 1 })} Gläser
+            </p>
+          </div>
+
+          {markerCounts.length > 0 && (
             <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="text-sm font-medium text-text-tertiary">Mögliche Auslöser</p>
+              <p className="text-sm font-medium text-warning">Mögliche Auslöser</p>
               <div className="mt-3 flex flex-col gap-2">
                 {markerCounts.map(({ key, count }) => (
                   <div key={key} className="flex items-center gap-2">
@@ -251,22 +275,26 @@ export function Week() {
                   </div>
                 ))}
               </div>
-              {goodMarkerCounts.length > 0 && (
-                <div className="mt-4 flex flex-col gap-2">
-                  {goodMarkerCounts.map(({ key, count }) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <span className="w-32 shrink-0 text-xs text-text-secondary">{goodMarkerLabels[key]}</span>
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-background">
-                        <div
-                          className="h-full rounded-full bg-primary"
-                          style={{ width: `${(count / maxMarkerCount) * 100}%` }}
-                        />
-                      </div>
-                      <span className="w-4 shrink-0 text-right text-xs text-text-tertiary">{count}</span>
+            </div>
+          )}
+
+          {goodMarkerCounts.length > 0 && (
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-sm font-medium text-primary-text">Gut für dich</p>
+              <div className="mt-3 flex flex-col gap-2">
+                {goodMarkerCounts.map(({ key, count }) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <span className="w-32 shrink-0 text-xs text-text-secondary">{goodMarkerLabels[key]}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-background">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${(count / maxMarkerCount) * 100}%` }}
+                      />
                     </div>
-                  ))}
-                </div>
-              )}
+                    <span className="w-4 shrink-0 text-right text-xs text-text-tertiary">{count}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
