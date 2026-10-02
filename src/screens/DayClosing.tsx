@@ -114,7 +114,7 @@ export function DayClosing() {
 
   return (
     <div className="pb-10">
-      <ScreenHeader title="Wie war dein Tag?" subtitle={formatGermanDate(today)} />
+      <ScreenHeader title={`Wie war dein ${formatGermanDate(today)}?`} />
 
       <div className="mt-6 flex flex-col gap-6 px-4">
         <div>

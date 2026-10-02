@@ -1,6 +1,7 @@
 import { BookOpen, CheckCircle2, ChevronRight, Circle, FileText, Plus, Wheat } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ExportSheet } from '../components/ExportSheet'
 import { IngredientsSheet } from '../components/IngredientsSheet'
 import { SavedMealSheet } from '../components/SavedMealSheet'
 import { StepSheet } from '../components/StepSheet'
@@ -35,6 +36,7 @@ export function MyWay() {
   const [editingSavedMeal, setEditingSavedMeal] = useState<SavedMealRow | null>(null)
   const [savedMealSheetOpen, setSavedMealSheetOpen] = useState(false)
   const [ingredientsSheetOpen, setIngredientsSheetOpen] = useState(false)
+  const [exportSheetOpen, setExportSheetOpen] = useState(false)
 
   function reloadSavedMeals() {
     if (!session) return
@@ -261,6 +263,14 @@ export function MyWay() {
             </button>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setExportSheetOpen(true)}
+          className="rounded-2xl border border-border bg-card p-4 text-left text-sm font-medium text-text"
+        >
+          Ernährungstagebuch exportieren
+        </button>
       </div>
 
       {session && (
@@ -282,6 +292,7 @@ export function MyWay() {
             onSaved={reloadSavedMeals}
           />
           <IngredientsSheet open={ingredientsSheetOpen} onClose={() => setIngredientsSheetOpen(false)} />
+          <ExportSheet open={exportSheetOpen} onClose={() => setExportSheetOpen(false)} userId={session.user.id} />
         </>
       )}
     </div>

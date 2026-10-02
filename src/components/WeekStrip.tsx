@@ -1,20 +1,26 @@
-import { getWeekDates, isSameDay } from '../lib/datetime'
+import { getWeekDates, isSameDay, startOfDay, toDateOnly } from '../lib/datetime'
 
 const weekdayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
 export function WeekStrip({
   selected,
   onSelect,
+  closedDates = new Set<string>(),
 }: {
   selected: Date
   onSelect: (date: Date) => void
+  /** Daten (YYYY-MM-DD), für die bereits ein Tagesabschluss existiert. Fehlende vergangene Tage bekommen einen Punkt. */
+  closedDates?: Set<string>
 }) {
   const days = getWeekDates(new Date())
+  const todayStart = startOfDay(new Date())
 
   return (
     <div className="flex justify-between px-4">
       {days.map((day, i) => {
         const isSelected = isSameDay(day, selected)
+        const isPast = day.getTime() < todayStart.getTime()
+        const missingClosing = isPast && !closedDates.has(toDateOnly(day))
         return (
           <button
             key={day.toISOString()}
@@ -30,6 +36,7 @@ export function WeekStrip({
             >
               {day.getDate()}
             </span>
+            <span className={`h-1 w-1 rounded-full ${missingClosing ? 'bg-text-tertiary' : 'bg-transparent'}`} />
           </button>
         )
       })}

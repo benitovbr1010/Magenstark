@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { ExportSheet } from '../components/ExportSheet'
 import { ReportSheet } from '../components/ReportSheet'
 import { ToggleChip } from '../components/ToggleChip'
 import { useAuth } from '../lib/AuthContext'
@@ -64,6 +65,7 @@ export function Week() {
   const [waterLogs, setWaterLogs] = useState<WaterLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [reportOpen, setReportOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [enoughDataForInsights, setEnoughDataForInsights] = useState<boolean | null>(null)
   const [insights, setInsights] = useState<{ auffaellig: string[]; ideas: string[] } | null>(null)
   const [insightsLoading, setInsightsLoading] = useState(false)
@@ -503,10 +505,23 @@ export function Week() {
           >
             Arztbericht als PDF
           </button>
+
+          <button
+            type="button"
+            onClick={() => setExportOpen(true)}
+            className="rounded-full border border-border bg-card px-4 py-3 text-center font-medium text-text"
+          >
+            Ernährungstagebuch exportieren
+          </button>
         </div>
       )}
 
-      {session && <ReportSheet open={reportOpen} onClose={() => setReportOpen(false)} userId={session.user.id} />}
+      {session && (
+        <>
+          <ReportSheet open={reportOpen} onClose={() => setReportOpen(false)} userId={session.user.id} />
+          <ExportSheet open={exportOpen} onClose={() => setExportOpen(false)} userId={session.user.id} />
+        </>
+      )}
     </div>
   )
 }

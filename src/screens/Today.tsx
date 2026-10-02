@@ -1,4 +1,4 @@
-import { Activity, GlassWater, Mic, Minus, Soup } from 'lucide-react'
+import { Activity, CheckCircle2, GlassWater, Mic, Minus, Soup, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BristolIcon } from '../components/BristolIcon'
@@ -24,6 +24,7 @@ import {
   endOfDay,
   formatGermanDate,
   formatGermanTime,
+  getWeekDates,
   isSameDay,
   nowOnDate,
   startOfDay,
@@ -58,9 +59,11 @@ export function Today() {
   const [context, setContext] = useState<ActiveContext | null>(null)
   const [contextSheetOpen, setContextSheetOpen] = useState(false)
   const [dayClosingDone, setDayClosingDone] = useState(false)
+  const [closedDates, setClosedDates] = useState<Set<string>>(new Set())
   const [infoArticle, setInfoArticle] = useState<KnowledgeArticle | null>(null)
   const [ingredientProfiles, setIngredientProfiles] = useState<Record<string, IngredientProfileRow>>({})
   const [sleepNudge, setSleepNudge] = useState<{ date: string } | null>(null)
+  const [missedClosingNudge, setMissedClosingNudge] = useState<{ date: string } | null>(null)
 
   function reloadContext() {
     if (!session) return
@@ -75,9 +78,21 @@ export function Today() {
       .from('day_closings')
       .select('id')
       .eq('user_id', session.user.id)
-      .eq('date', toDateOnly(new Date()))
+      .eq('date', toDateOnly(selectedDate))
       .maybeSingle()
       .then(({ data }) => setDayClosingDone(!!data))
+  }, [session, selectedDate])
+
+  useEffect(() => {
+    if (!session) return
+    const weekDays = getWeekDates(new Date())
+    supabase
+      .from('day_closings')
+      .select('date')
+      .eq('user_id', session.user.id)
+      .gte('date', toDateOnly(weekDays[0]))
+      .lte('date', toDateOnly(weekDays[6]))
+      .then(({ data }) => setClosedDates(new Set((data ?? []).map((r) => r.date))))
   }, [session])
 
   useEffect(() => {
@@ -97,9 +112,31 @@ export function Today() {
       })
   }, [session])
 
+  useEffect(() => {
+    if (!session) return
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = toDateOnly(yesterday)
+    if (localStorage.getItem(`dayClosingNudgeSkipped_${yesterdayStr}`)) return
+    supabase
+      .from('day_closings')
+      .select('id')
+      .eq('user_id', session.user.id)
+      .eq('date', yesterdayStr)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) setMissedClosingNudge({ date: yesterdayStr })
+      })
+  }, [session])
+
   function dismissSleepNudge() {
     if (sleepNudge) localStorage.setItem(`sleepNudgeSkipped_${sleepNudge.date}`, '1')
     setSleepNudge(null)
+  }
+
+  function dismissMissedClosingNudge() {
+    if (missedClosingNudge) localStorage.setItem(`dayClosingNudgeSkipped_${missedClosingNudge.date}`, '1')
+    setMissedClosingNudge(null)
   }
 
   async function handleExtendContext() {
@@ -187,6 +224,7 @@ export function Today() {
   }, [session, selectedDate])
 
   const isToday = isSameDay(selectedDate, new Date())
+  const isFutureDay = startOfDay(selectedDate).getTime() > startOfDay(new Date()).getTime()
   const captureSuffix = isToday ? '' : `?date=${toDateOnly(selectedDate)}`
   const waterCount = waterLogs.length
   const waterTotal = totalMl(waterLogs)
@@ -195,6 +233,29 @@ export function Today() {
     <div className="px-4 pt-6">
       <h1 className="text-2xl font-semibold text-text">Heute</h1>
       <p className="mt-1 text-sm text-text-secondary">{formatGermanDate(selectedDate)}</p>
+
+      {missedClosingNudge && (
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl bg-warning-light px-4 py-2.5">
+          <span className="text-xs text-warning">Gestern noch nicht abgeschlossen</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              to={`/tagesabschluss?date=${missedClosingNudge.date}`}
+              onClick={dismissMissedClosingNudge}
+              className="rounded-full bg-card px-3 py-1 text-xs font-medium text-warning"
+            >
+              Jetzt nachholen
+            </Link>
+            <button
+              type="button"
+              onClick={dismissMissedClosingNudge}
+              aria-label="Schließen"
+              className="text-warning"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-3">
         {context && isContextExpired(context) ? (
@@ -229,7 +290,7 @@ export function Today() {
       </div>
 
       <div className="-mx-4 mt-6">
-        <WeekStrip selected={selectedDate} onSelect={setSelectedDate} />
+        <WeekStrip selected={selectedDate} onSelect={setSelectedDate} closedDates={closedDates} />
       </div>
 
       <button
@@ -417,12 +478,15 @@ export function Today() {
         </div>
       )}
 
-      {isToday && !dayClosingDone && (
+      {!isFutureDay && (
         <Link
-          to="/tagesabschluss"
-          className="mt-4 block rounded-2xl border border-border bg-card px-4 py-3 text-center text-sm font-medium text-primary-text"
+          to={`/tagesabschluss${isToday ? '' : '?date=' + toDateOnly(selectedDate)}`}
+          className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3"
         >
-          Tag abschließen
+          <span className="text-sm font-medium text-primary-text">
+            {dayClosingDone ? 'Tagesabschluss bearbeiten' : 'Tag abschließen'}
+          </span>
+          {dayClosingDone && <CheckCircle2 size={18} className="shrink-0 text-primary" />}
         </Link>
       )}
 
