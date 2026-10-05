@@ -25,7 +25,6 @@ import {
   endOfDay,
   formatGermanDate,
   formatGermanTime,
-  getWeekDates,
   isSameDay,
   nowOnDate,
   startOfDay,
@@ -92,13 +91,12 @@ export function Today() {
 
   useEffect(() => {
     if (!session) return
-    const weekDays = getWeekDates(new Date())
+    // Ohne Datumsfilter, da WeekStrip auch vergangene Wochen anzeigen kann und dort ebenfalls
+    // der "Tagesabschluss fehlt"-Punkt angezeigt werden soll.
     supabase
       .from('day_closings')
       .select('date')
       .eq('user_id', session.user.id)
-      .gte('date', toDateOnly(weekDays[0]))
-      .lte('date', toDateOnly(weekDays[6]))
       .then(({ data }) => setClosedDates(new Set((data ?? []).map((r) => r.date))))
   }, [session])
 

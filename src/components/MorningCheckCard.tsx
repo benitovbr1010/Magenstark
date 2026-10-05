@@ -114,7 +114,6 @@ export function MorningCheckCard({
   }
 
   if (!editing) {
-    if (!log?.quality) return null
     return (
       <button
         type="button"
@@ -122,7 +121,9 @@ export function MorningCheckCard({
         className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-left"
       >
         <span className="text-sm font-medium text-text">
-          Geschlafen: {log.quality}/5{savedDurationMinutes != null && ` · ${formatDuration(savedDurationMinutes)}`}
+          {log?.quality
+            ? `Geschlafen: ${log.quality}/5${savedDurationMinutes != null ? ` · ${formatDuration(savedDurationMinutes)}` : ''}`
+            : 'Wie hast du geschlafen?'}
         </span>
         <ChevronRight size={18} className="shrink-0 text-text-tertiary" />
       </button>

@@ -9,9 +9,14 @@ import type { Database } from '../lib/database.types'
 import { endOfDay, getWeekDates, startOfDay, toDateOnly } from '../lib/datetime'
 import { supabase } from '../lib/supabaseClient'
 import { fetchPeriodInsights, fetchWeekInsights, fetchWeekInsightsStats, type PeriodInsights } from '../lib/weekInsights'
-import { fetchWaterLogs, formatLiters, totalMl, type WaterLogRow } from '../lib/water'
+import { formatLiters } from '../lib/water'
+
+/** Sentinel für „Diese Woche" (Montag der aktuellen Kalenderwoche bis heute), im Unterschied zu den
+ * rollierenden Zeitfenstern (z.B. „1 Woche" = letzte 7 Tage). */
+const THIS_WEEK = -1
 
 const periodOptions: { label: string; days: number | null }[] = [
+  { label: 'Diese Woche', days: THIS_WEEK },
   { label: '1 Woche', days: 7 },
   { label: '2 Wochen', days: 14 },
   { label: '4 Wochen', days: 28 },
@@ -21,7 +26,6 @@ const periodOptions: { label: string; days: number | null }[] = [
 type BowelRow = Database['public']['Tables']['bowel_movements']['Row']
 type WellbeingRow = Database['public']['Tables']['wellbeing']['Row']
 type MealRow = Database['public']['Tables']['meals']['Row']
-type DayClosingRow = Database['public']['Tables']['day_closings']['Row']
 type MarkerKey = keyof typeof markerLabels
 type GoodMarkerKey = keyof typeof goodMarkerLabels
 
@@ -61,8 +65,6 @@ export function Week() {
   const [bowelRows, setBowelRows] = useState<BowelRow[]>([])
   const [wellbeingRows, setWellbeingRows] = useState<WellbeingRow[]>([])
   const [mealRows, setMealRows] = useState<MealRow[]>([])
-  const [dayClosingRows, setDayClosingRows] = useState<DayClosingRow[]>([])
-  const [waterLogs, setWaterLogs] = useState<WaterLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [reportOpen, setReportOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -90,8 +92,6 @@ export function Week() {
 
     const from = startOfDay(days[0]).toISOString()
     const to = endOfDay(days[6]).toISOString()
-    const dateFrom = toDateOnly(days[0])
-    const dateTo = toDateOnly(days[6])
 
     Promise.all([
       supabase
@@ -107,20 +107,11 @@ export function Week() {
         .gte('occurred_at', from)
         .lte('occurred_at', to),
       supabase.from('meals').select('*').eq('user_id', session.user.id).gte('eaten_at', from).lte('eaten_at', to),
-      supabase
-        .from('day_closings')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .gte('date', dateFrom)
-        .lte('date', dateTo),
-      fetchWaterLogs(session.user.id, startOfDay(days[0]), endOfDay(days[6])),
-    ]).then(([bowelRes, wellbeingRes, mealsRes, dayClosingsRes, waterRes]) => {
+    ]).then(([bowelRes, wellbeingRes, mealsRes]) => {
       if (cancelled) return
       setBowelRows(bowelRes.data ?? [])
       setWellbeingRows(wellbeingRes.data ?? [])
       setMealRows(mealsRes.data ?? [])
-      setDayClosingRows(dayClosingsRes.data ?? [])
-      setWaterLogs(waterRes)
       setLoading(false)
     })
 
@@ -155,7 +146,11 @@ export function Week() {
     let cancelled = false
     setPeriodLoading(true)
 
-    fetchPeriodInsights(session.user.id, periodDays).then((result) => {
+    const windowDays =
+      periodDays === THIS_WEEK
+        ? getWeekDates(new Date()).findIndex((d) => toDateOnly(d) === toDateOnly(new Date())) + 1
+        : periodDays
+    fetchPeriodInsights(session.user.id, windowDays).then((result) => {
       if (cancelled) return
       setPeriodInsights(result)
       setPeriodLoading(false)
@@ -168,14 +163,6 @@ export function Week() {
 
   const bristolCounts = bristolValues.map((value) => bowelRows.filter((row) => row.bristol === value).length)
   const maxBristolCount = Math.max(1, ...bristolCounts)
-
-  const moodByDay = days.map((day) => {
-    const dateStr = toDateOnly(day)
-    const entries = wellbeingRows.filter((row) => toDateOnly(new Date(row.occurred_at)) === dateStr)
-    const avgMood = entries.length ? entries.reduce((sum, row) => sum + row.mood, 0) / entries.length : null
-    const isStressDay = (dayClosingRows.find((row) => row.date === dateStr)?.stress ?? 0) >= 4
-    return { avgMood, isStressDay }
-  })
 
   const markerCounts = (Object.keys(markerLabels) as MarkerKey[])
     .map((key) => ({ key, count: mealRows.filter((row) => row.markers.includes(key)).length }))
@@ -213,9 +200,6 @@ export function Week() {
   }
   const placeEntries = Array.from(placeStats.entries()).sort((a, b) => b[1].total - a[1].total)
 
-  const avgWaterMlPerDay = totalMl(waterLogs) / 7
-  const avgGlassesPerDay = waterLogs.length / 7
-
   return (
     <div className="px-4 pt-6 pb-10">
       <h1 className="text-2xl font-semibold text-text">Woche</h1>
@@ -247,6 +231,17 @@ export function Week() {
             </div>
           </div>
 
+          <div className="flex flex-wrap gap-2">
+            {periodOptions.map((opt) => (
+              <ToggleChip
+                key={opt.label}
+                label={opt.label}
+                active={periodDays === opt.days}
+                onClick={() => setPeriodDays(opt.days)}
+              />
+            ))}
+          </div>
+
           <div className="rounded-2xl border border-border bg-card p-4">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium text-text-tertiary">Befinden</p>
@@ -255,36 +250,57 @@ export function Week() {
                 <p>schlecht</p>
               </div>
             </div>
-            <svg viewBox="0 0 280 80" className="mt-2 h-20 w-full">
-              <polyline
-                fill="none"
-                stroke="#A9BBAE"
-                strokeWidth="2"
-                points={moodByDay
-                  .map((d, i) => (d.avgMood == null ? null : `${(i / 6) * 280},${76 - (d.avgMood / 5) * 72}`))
-                  .filter((p): p is string => p !== null)
-                  .join(' ')}
-              />
-              {moodByDay.map((d, i) =>
-                d.avgMood == null ? null : (
-                  <circle
-                    key={i}
-                    cx={(i / 6) * 280}
-                    cy={76 - (d.avgMood / 5) * 72}
-                    r={5}
-                    fill={d.isStressDay ? '#A8483E' : moodColors[Math.max(0, Math.round(d.avgMood) - 1)]}
+            {periodLoading ? (
+              <p className="mt-2 text-sm text-text-tertiary">Wird berechnet …</p>
+            ) : !periodInsights || periodInsights.wellbeing.series.length === 0 ? (
+              <p className="mt-2 text-sm text-text-tertiary">Noch zu wenig Daten für Muster</p>
+            ) : (
+              <>
+                <p className="mt-1 text-2xl font-semibold text-text">
+                  {periodInsights.wellbeing.avgMood != null ? `${periodInsights.wellbeing.avgMood} / 5` : '–'}
+                </p>
+                <svg viewBox="0 0 280 80" className="mt-2 h-20 w-full">
+                  <polyline
+                    fill="none"
+                    stroke="#A9BBAE"
+                    strokeWidth="2"
+                    points={periodInsights.wellbeing.series
+                      .map((d, i, arr) =>
+                        d.avgMood == null ? null : `${(i / Math.max(1, arr.length - 1)) * 280},${76 - (d.avgMood / 5) * 72}`,
+                      )
+                      .filter((p): p is string => p !== null)
+                      .join(' ')}
                   />
-                ),
-              )}
-            </svg>
+                  {periodInsights.wellbeing.series.map((d, i, arr) =>
+                    d.avgMood == null ? null : (
+                      <circle
+                        key={d.date}
+                        cx={(i / Math.max(1, arr.length - 1)) * 280}
+                        cy={76 - (d.avgMood / 5) * 72}
+                        r={3}
+                        fill={d.isStressDay ? '#A8483E' : moodColors[Math.max(0, Math.round(d.avgMood) - 1)]}
+                      />
+                    ),
+                  )}
+                </svg>
+              </>
+            )}
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-4">
             <p className="text-sm font-medium text-text-tertiary">Trinken</p>
-            <p className="mt-1 text-2xl font-semibold text-text">{formatLiters(avgWaterMlPerDay)}</p>
-            <p className="text-xs text-text-tertiary">
-              Ø pro Tag · {avgGlassesPerDay.toLocaleString('de-DE', { maximumFractionDigits: 1 })} Gläser
-            </p>
+            {periodLoading ? (
+              <p className="mt-2 text-sm text-text-tertiary">Wird berechnet …</p>
+            ) : !periodInsights ? (
+              <p className="mt-2 text-sm text-text-tertiary">Noch zu wenig Daten für Muster</p>
+            ) : (
+              <>
+                <p className="mt-1 text-2xl font-semibold text-text">{formatLiters(periodInsights.water.avgMlPerDay)}</p>
+                <p className="text-xs text-text-tertiary">
+                  Ø pro Tag · {periodInsights.water.avgGlassesPerDay.toLocaleString('de-DE', { maximumFractionDigits: 1 })} Gläser
+                </p>
+              </>
+            )}
           </div>
 
           {markerCounts.length > 0 && (
@@ -354,17 +370,6 @@ export function Week() {
               </div>
             </div>
           )}
-
-          <div className="flex flex-wrap gap-2">
-            {periodOptions.map((opt) => (
-              <ToggleChip
-                key={opt.label}
-                label={opt.label}
-                active={periodDays === opt.days}
-                onClick={() => setPeriodDays(opt.days)}
-              />
-            ))}
-          </div>
 
           <div className="rounded-2xl border border-border bg-card p-4">
             <p className="text-sm font-medium text-text-tertiary">Essensrhythmus</p>

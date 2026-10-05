@@ -4,7 +4,7 @@ import { toDateOnly } from './datetime'
 import { computeMealRhythm, computeSleepDuration, groupMealsByDay, minutesOfDay, type MealRhythmStats, type SleepDurationStats } from './mealRhythm'
 import { fetchSleepLogs } from './sleep'
 import { supabase } from './supabaseClient'
-import { fetchWaterLogs } from './water'
+import { fetchWaterLogs, totalMl } from './water'
 
 type BowelRow = Database['public']['Tables']['bowel_movements']['Row']
 type WellbeingRow = Database['public']['Tables']['wellbeing']['Row']
@@ -222,6 +222,8 @@ export type LateEatingSleep = {
   avgQualityNotLate: number | null
 }
 
+export type MoodPoint = { date: string; avgMood: number | null; isStressDay: boolean }
+
 export type PeriodInsights = {
   periodDays: number | null
   daysWithData: number
@@ -229,6 +231,8 @@ export type PeriodInsights = {
   sleep: SleepDurationStats
   lateEating: LateEatingSleep | null
   connections: Connection[]
+  wellbeing: { avgMood: number | null; series: MoodPoint[] }
+  water: { avgMlPerDay: number; avgGlassesPerDay: number }
 }
 
 /** Essensrhythmus/Schlaf/Zusammenhänge für einen wählbaren Zeitraum (1/2/4 Wochen oder alles, SPEC §6.3 Erweiterung).
@@ -516,6 +520,27 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
     })
   }
 
+  // Befinden & Trinken für den gewählten Zeitraum (Erweiterung der Woche-Ansicht, SPEC §4.7-Erweiterung).
+  const moodSeries: MoodPoint[] = Array.from(dayWellbeingMap.keys())
+    .sort()
+    .map((day) => {
+      const rows = dayWellbeingMap.get(day) ?? []
+      return {
+        date: day,
+        avgMood: rows.length ? round1(avg(rows.map((r) => r.mood))) : null,
+        isStressDay: (dayClosingRows.find((r) => r.date === day)?.stress ?? 0) >= 4,
+      }
+    })
+  const moodValues = moodSeries.map((m) => m.avgMood).filter((m): m is number => m !== null)
+  const avgMood = moodValues.length ? round1(avg(moodValues)) : null
+
+  // "Alles" hat kein festes Fenster – Anzahl Tage ergibt sich aus dem ersten Wasser-Log bis heute.
+  const waterWindowDays =
+    windowDays ??
+    (waterRows.length
+      ? Math.max(1, Math.round((to.getTime() - new Date(waterRows[0].drunk_at).getTime()) / 86400000) + 1)
+      : 1)
+
   return {
     periodDays: windowDays,
     daysWithData: daysWithData.size,
@@ -523,5 +548,7 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
     sleep,
     lateEating,
     connections,
+    wellbeing: { avgMood, series: moodSeries },
+    water: { avgMlPerDay: totalMl(waterRows) / waterWindowDays, avgGlassesPerDay: waterRows.length / waterWindowDays },
   }
 }
