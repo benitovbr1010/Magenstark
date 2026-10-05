@@ -1,5 +1,6 @@
-import { ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { ToggleChip } from './ToggleChip'
 import { toDateOnly } from '../lib/datetime'
 import { fetchProfile } from '../lib/profile'
 import {
@@ -73,18 +74,26 @@ export function MorningCheckCard({
   const [editing, setEditing] = useState(variant === 'banner')
   const [wakeTime, setWakeTime] = useState('')
   const [bedTime, setBedTime] = useState('')
+  // Zeit "Ins Bett gegangen" kann vor oder nach Mitternacht liegen – steuert, ob als Basisdatum
+  // die Nacht davor (nightOf) oder der Aufwach-Tag selbst (targetDate) verwendet wird.
+  const [bedOnWakeDay, setBedOnWakeDay] = useState(false)
   const [quality, setQuality] = useState<1 | 2 | 3 | 4 | 5>(3)
   const [offsetMinutes, setOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
   const [saving, setSaving] = useState(false)
+
+  function resetFromLog(sleepLog: SleepLogRow | null) {
+    setWakeTime(sleepLog?.woke_at ? timeInputValue(sleepLog.woke_at) : isCurrentMorning ? nowTimeInput() : '')
+    setBedTime(sleepLog?.bed_at ? timeInputValue(sleepLog.bed_at) : '')
+    setBedOnWakeDay(false)
+    setQuality((sleepLog?.quality as 1 | 2 | 3 | 4 | 5) ?? 3)
+  }
 
   useEffect(() => {
     setLoading(true)
     Promise.all([fetchSleepLog(userId, nightOf), fetchProfile(userId)]).then(([sleepLog, profile]) => {
       setLog(sleepLog)
       setOffsetMinutes(profile?.sleep_offset_minutes ?? DEFAULT_SLEEP_OFFSET_MINUTES)
-      setWakeTime(sleepLog?.woke_at ? timeInputValue(sleepLog.woke_at) : isCurrentMorning ? nowTimeInput() : '')
-      setBedTime(sleepLog?.bed_at ? timeInputValue(sleepLog.bed_at) : '')
-      setQuality((sleepLog?.quality as 1 | 2 | 3 | 4 | 5) ?? 3)
+      resetFromLog(sleepLog)
       setEditing(variant === 'banner' ? !sleepLog?.quality : false)
       setLoading(false)
     })
@@ -93,7 +102,13 @@ export function MorningCheckCard({
 
   if (loading) return null
 
-  const bedIso = bedTime ? buildTimestamp(nightOf, bedTime) : log?.bed_at ?? null
+  function handleCancel() {
+    resetFromLog(log)
+    setEditing(false)
+  }
+
+  const bedBaseDate = bedOnWakeDay ? targetDate : nightOf
+  const bedIso = bedTime ? buildTimestamp(bedBaseDate, bedTime) : log?.bed_at ?? null
   const wakeIso = wakeTime ? buildTimestamp(targetDate, wakeTime) : null
   const durationMinutes = bedIso && wakeIso ? sleepDurationMinutes({ bed_at: bedIso, woke_at: wakeIso }) : null
   const savedDurationMinutes = log ? sleepDurationMinutes(log) : null
@@ -137,8 +152,15 @@ export function MorningCheckCard({
 
   return (
     <div className={wrapperClass}>
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-text">Guten Morgen, wie hast du geschlafen?</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {variant === 'inline' && (
+            <button type="button" onClick={handleCancel} aria-label="Zurück" className="shrink-0 text-text-tertiary">
+              <ChevronLeft size={18} />
+            </button>
+          )}
+          <p className="text-sm font-medium text-text">Guten Morgen, wie hast du geschlafen?</p>
+        </div>
         {variant === 'banner' && onDismiss && (
           <button type="button" onClick={onDismiss} aria-label="Schließen" className="shrink-0 text-text-tertiary">
             <X size={16} />
@@ -147,15 +169,25 @@ export function MorningCheckCard({
       </div>
 
       {!log?.bed_at && (
-        <label className="mt-3 block">
-          <span className="text-xs text-text-tertiary">Ins Bett gegangen</span>
-          <input
-            type="time"
-            value={bedTime}
-            onChange={(e) => setBedTime(e.target.value)}
-            className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
-          />
-        </label>
+        <div className="mt-3">
+          <label className="block">
+            <span className="text-xs text-text-tertiary">Ins Bett gegangen</span>
+            <input
+              type="time"
+              value={bedTime}
+              onChange={(e) => setBedTime(e.target.value)}
+              className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
+            />
+          </label>
+          <div className="mt-2 flex gap-2">
+            <ToggleChip
+              label={`Abend davor (${nightOf.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })})`}
+              active={!bedOnWakeDay}
+              onClick={() => setBedOnWakeDay(false)}
+            />
+            <ToggleChip label="Nach Mitternacht" active={bedOnWakeDay} onClick={() => setBedOnWakeDay(true)} />
+          </div>
+        </div>
       )}
 
       <label className="mt-3 block">

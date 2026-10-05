@@ -56,9 +56,18 @@ function capChips<T extends string>(items: T[], max = 3): { shown: T[]; extra: n
 
 const bowelFlagKeys = Object.keys(flagLabels) as (keyof typeof flagLabels)[]
 
+// Außerhalb der Komponente, damit der zuletzt gewählte Tag beim Verlassen/Zurückkehren (z.B. Bearbeiten
+// eines Eintrags an einem älteren Tag) erhalten bleibt, statt beim Remount von Today auf heute zu springen.
+// Setzt sich bei vollem Seiten-Reload wieder zurück (dann ist "heute" wieder korrekt).
+let lastSelectedDate: Date | null = null
+
 export function Today() {
   const { session } = useAuth()
-  const [selectedDate, setSelectedDate] = useState(new Date())
+  const [selectedDate, setSelectedDateState] = useState(() => lastSelectedDate ?? new Date())
+  function setSelectedDate(date: Date) {
+    lastSelectedDate = date
+    setSelectedDateState(date)
+  }
   const [entries, setEntries] = useState<TimelineEntry[]>([])
   const [waterLogs, setWaterLogs] = useState<WaterLogRow[]>([])
   const [loading, setLoading] = useState(true)
