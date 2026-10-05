@@ -1,4 +1,4 @@
-// Essensrhythmus- und Schlafdauer-Berechnung: reine Funktionen, die Mahlzeiten-/Tagesabschluss-Zeilen
+// Essensrhythmus- und Schlafdauer-Berechnung: reine Funktionen, die Mahlzeiten-/Schlaf-Zeilen
 // (beliebiger Zeitraum) zu Kennzahlen verdichten. Von weekInsights.ts (Wochenübersicht) UND report.ts
 // (Arztbericht, "nur Zahlen") gemeinsam genutzt, damit beide Stellen dieselbe Logik verwenden.
 import { mealTypeLabels } from './constants'
@@ -6,7 +6,7 @@ import type { Database } from './database.types'
 import { toDateOnly } from './datetime'
 
 type MealRow = Database['public']['Tables']['meals']['Row']
-type DayClosingRow = Database['public']['Tables']['day_closings']['Row']
+type SleepLogRow = Database['public']['Tables']['sleep_logs']['Row']
 export type MealTypeKey = keyof typeof mealTypeLabels
 
 const REGULAR_MEAL_TYPES: MealTypeKey[] = ['fruehstueck', 'mittag', 'abend']
@@ -60,7 +60,7 @@ export function groupMealsByDay(mealRows: MealRow[]): Map<string, MealRow[]> {
   return dayMap
 }
 
-export function computeMealRhythm(mealRows: MealRow[], dayClosingRows: DayClosingRow[]): MealRhythmStats {
+export function computeMealRhythm(mealRows: MealRow[], sleepLogRows: SleepLogRow[]): MealRhythmStats {
   const mealTypeKeys = Object.keys(mealTypeLabels) as MealTypeKey[]
   const dayMap = groupMealsByDay(mealRows)
   const daysConsidered = dayMap.size
@@ -113,14 +113,12 @@ export function computeMealRhythm(mealRows: MealRow[], dayClosingRows: DayClosin
   }
 
   const lastMealToBedtimeGaps: number[] = []
-  for (const dc of dayClosingRows) {
-    if (!dc.bedtime) continue
-    const previousDay = new Date(`${dc.date}T12:00:00`)
-    previousDay.setDate(previousDay.getDate() - 1)
-    const dayRows = dayMap.get(toDateOnly(previousDay))
+  for (const log of sleepLogRows) {
+    if (!log.bed_at) continue
+    const dayRows = dayMap.get(log.night_of)
     if (!dayRows || dayRows.length === 0) continue
     const lastMeal = dayRows.reduce((latest, m) => (new Date(m.eaten_at) > new Date(latest.eaten_at) ? m : latest))
-    const gapMinutes = (new Date(dc.bedtime).getTime() - new Date(lastMeal.eaten_at).getTime()) / 60000
+    const gapMinutes = (new Date(log.bed_at).getTime() - new Date(lastMeal.eaten_at).getTime()) / 60000
     if (gapMinutes > 0 && gapMinutes < 16 * 60) lastMealToBedtimeGaps.push(gapMinutes)
   }
   const avgLastMealToBedtimeMinutes = lastMealToBedtimeGaps.length
@@ -143,17 +141,17 @@ export type SleepDurationStats = {
   qualityCases: number
 }
 
-export function computeSleepDuration(dayClosingRows: DayClosingRow[]): SleepDurationStats {
+export function computeSleepDuration(sleepLogRows: SleepLogRow[]): SleepDurationStats {
   const durations: number[] = []
-  for (const dc of dayClosingRows) {
-    if (!dc.bedtime || !dc.wake_time) continue
-    const hours = (new Date(dc.wake_time).getTime() - new Date(dc.bedtime).getTime()) / 3600000
+  for (const log of sleepLogRows) {
+    if (!log.bed_at || !log.woke_at) continue
+    const hours = (new Date(log.woke_at).getTime() - new Date(log.bed_at).getTime()) / 3600000
     if (hours > 0 && hours < 16) durations.push(hours)
   }
   const avgDurationHours = durations.length
     ? Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) * 10) / 10
     : null
-  const qualities = dayClosingRows.map((dc) => dc.sleep)
+  const qualities = sleepLogRows.map((log) => log.quality).filter((q): q is number => q !== null)
   const avgQuality = qualities.length ? Math.round((qualities.reduce((a, b) => a + b, 0) / qualities.length) * 10) / 10 : null
   return { avgDurationHours, durationCases: durations.length, avgQuality, qualityCases: qualities.length }
 }

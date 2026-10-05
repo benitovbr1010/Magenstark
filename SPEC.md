@@ -196,9 +196,11 @@ Output:
 }
 ```
 Marker-Liste (fest im Code, erweiterbar):
-- Mögliche Auslöser: `gluten`, `laktose`, `fodmap_hoch`, `zuckeraustausch`, `viel_zucker`, `fettig_frittiert`, `scharf`, `rotes_fleisch`, `verarbeitetes_fleisch`, `stark_verarbeitet`, `kaffee`, `alkohol`, `kohlensaeure`
-- Gut: `ballaststoffe`, `gemuese`, `ausreichend_getrunken`
+- Mögliche Auslöser: `gluten`, `laktose`, `fodmap_hoch`, `zuckeraustausch`, `viel_zucker`, `fettreich`, `scharf`, `rotes_fleisch`, `verarbeitetes_fleisch`, `stark_verarbeitet`, `kaffee`, `alkohol`, `kohlensaeure`
+- Gut: `ballaststoffe`, `gemuese`, `obst_fodmap_arm`, `fermentiert`, `gesunde_fette`, `ausreichend_getrunken`
 Die KI soll typische Zutaten realistisch annehmen (Bolognese enthält meist Zwiebel/Knoblauch) und bei Unsicherheit lieber weglassen.
+`fettreich` wird nicht frei von der KI vergeben, sondern aus festen Regeln berechnet: Zubereitung (frittiert/paniert/viel Öl) ODER eine fettreiche Zutat (Käse, Butter, Sahne, Wurst, Speck, Öle – auch die unten genannten „gesunden Fette") in großer Menge. Dafür schätzt die KI pro Zutat Menge (wenig/normal/viel) und Zubereitungsart, der Code entscheidet nach festen Regeln.
+`gesunde_fette` wird nur für eine feste Zutatenliste vergeben (Olivenöl/Raps-/Leinöl, Nüsse, Samen, Avocado, fetter Fisch) – Käse, Butter, Sahne, Wurst, Speck sind NIE `gesunde_fette`, unabhängig von der Menge.
 
 ### 6.2 Befund auswerten
 Input: PDF/Foto des Befunds.

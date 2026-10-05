@@ -2,6 +2,7 @@ import { dayTagLabels, flagLabels, markerLabels, symptomLabels } from './constan
 import type { Database } from './database.types'
 import { toDateOnly } from './datetime'
 import { computeMealRhythm, computeSleepDuration, groupMealsByDay, minutesOfDay, type MealRhythmStats, type SleepDurationStats } from './mealRhythm'
+import { fetchSleepLogs } from './sleep'
 import { supabase } from './supabaseClient'
 import { fetchWaterLogs } from './water'
 
@@ -242,11 +243,12 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
   const dateFrom = toDateOnly(from)
   const dateTo = toDateOnly(to)
 
-  const [bowelRes, wellbeingRes, mealsRes, dayClosingsRes, waterRows] = await Promise.all([
+  const [bowelRes, wellbeingRes, mealsRes, dayClosingsRes, sleepLogRows, waterRows] = await Promise.all([
     supabase.from('bowel_movements').select('*').eq('user_id', userId).gte('occurred_at', from.toISOString()).lte('occurred_at', to.toISOString()),
     supabase.from('wellbeing').select('*').eq('user_id', userId).gte('occurred_at', from.toISOString()).lte('occurred_at', to.toISOString()),
     supabase.from('meals').select('*').eq('user_id', userId).gte('eaten_at', from.toISOString()).lte('eaten_at', to.toISOString()),
     supabase.from('day_closings').select('*').eq('user_id', userId).gte('date', dateFrom).lte('date', dateTo),
+    fetchSleepLogs(userId, from, to),
     fetchWaterLogs(userId, from, to),
   ])
 
@@ -264,8 +266,8 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
   const requiredDays = windowDays ? Math.max(4, Math.ceil(windowDays * 0.5)) : 10
   if (daysWithData.size < requiredDays) return null
 
-  const mealRhythm = computeMealRhythm(mealRows, dayClosingRows)
-  const sleep = computeSleepDuration(dayClosingRows)
+  const mealRhythm = computeMealRhythm(mealRows, sleepLogRows)
+  const sleep = computeSleepDuration(sleepLogRows)
 
   const dayWellbeingMap = new Map<string, WellbeingRow[]>()
   for (const r of wellbeingRows) {
@@ -292,17 +294,19 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
 
   const dayMealMap = groupMealsByDay(mealRows)
 
-  // Spätes Essen (<2h vor dem Schlafen): je Tagesabschluss mit bedtime die letzte Mahlzeit des Vorabends.
-  const lateGaps: { gapMinutes: number; nightDate: string }[] = []
-  for (const dc of dayClosingRows) {
-    if (!dc.bedtime) continue
-    const previousDay = new Date(`${dc.date}T12:00:00`)
-    previousDay.setDate(previousDay.getDate() - 1)
-    const dayRows = dayMealMap.get(toDateOnly(previousDay))
+  // Spätes Essen (<2h vor dem Schlafen): je Schlaf-Log mit bed_at die letzte Mahlzeit desselben Abends (night_of).
+  const lateGaps: { gapMinutes: number; nightDate: string; nextMorning: string }[] = []
+  for (const log of sleepLogRows) {
+    if (!log.bed_at) continue
+    const dayRows = dayMealMap.get(log.night_of)
     if (!dayRows || dayRows.length === 0) continue
     const lastMeal = dayRows.reduce((latest, m) => (new Date(m.eaten_at) > new Date(latest.eaten_at) ? m : latest))
-    const gapMinutes = (new Date(dc.bedtime).getTime() - new Date(lastMeal.eaten_at).getTime()) / 60000
-    if (gapMinutes > 0 && gapMinutes < 16 * 60) lateGaps.push({ gapMinutes, nightDate: dc.date })
+    const gapMinutes = (new Date(log.bed_at).getTime() - new Date(lastMeal.eaten_at).getTime()) / 60000
+    if (gapMinutes > 0 && gapMinutes < 16 * 60) {
+      const nextMorning = new Date(`${log.night_of}T12:00:00`)
+      nextMorning.setDate(nextMorning.getDate() + 1)
+      lateGaps.push({ gapMinutes, nightDate: log.night_of, nextMorning: toDateOnly(nextMorning) })
+    }
   }
   const lateNights = lateGaps.filter((g) => g.gapMinutes < 120)
   const notLateNights = lateGaps.filter((g) => g.gapMinutes >= 120)
@@ -310,8 +314,8 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
   if (lateNights.length >= PERIOD_MIN_CASES && notLateNights.length >= PERIOD_MIN_CASES) {
     const qualityFor = (nights: typeof lateGaps) => {
       const qs = nights
-        .map((n) => dayClosingRows.find((dc) => dc.date === n.nightDate)?.sleep)
-        .filter((q): q is number => q !== undefined)
+        .map((n) => sleepLogRows.find((log) => log.night_of === n.nightDate)?.quality)
+        .filter((q): q is number => q !== null && q !== undefined)
       return qs.length ? round1(avg(qs)) : null
     }
     lateEating = {
@@ -432,14 +436,17 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
     })
   }
 
-  // Schlafqualität vs. Beschwerden am Folgetag.
+  // Schlafqualität der Nacht VOR einem Tag vs. Beschwerden an diesem Tag.
   const poorSleepScores: number[] = []
   const goodSleepScores: number[] = []
-  for (const dc of dayClosingRows) {
-    const score = symptomByDay.get(dc.date)
+  for (const log of sleepLogRows) {
+    if (log.quality === null) continue
+    const nextDay = new Date(`${log.night_of}T12:00:00`)
+    nextDay.setDate(nextDay.getDate() + 1)
+    const score = symptomByDay.get(toDateOnly(nextDay))
     if (score === undefined) continue
-    if (dc.sleep <= 2) poorSleepScores.push(score)
-    else if (dc.sleep >= 4) goodSleepScores.push(score)
+    if (log.quality <= 2) poorSleepScores.push(score)
+    else if (log.quality >= 4) goodSleepScores.push(score)
   }
   if (poorSleepScores.length >= PERIOD_MIN_CASES && goodSleepScores.length >= PERIOD_MIN_CASES) {
     connections.push({
@@ -459,7 +466,7 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
   const lateBristol: number[] = []
   const notLateBristol: number[] = []
   for (const g of lateGaps) {
-    const b = bristolByDay.get(g.nightDate)
+    const b = bristolByDay.get(g.nextMorning)
     if (b === undefined) continue
     if (g.gapMinutes < 120) lateBristol.push(b)
     else notLateBristol.push(b)

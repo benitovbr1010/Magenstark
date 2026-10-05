@@ -18,3 +18,7 @@ export async function upsertProfile(
 export async function updateThemePreference(userId: string, mode: 'light' | 'dark' | 'system'): Promise<void> {
   await supabase.from('profiles').upsert({ id: userId, theme_preference: mode }, { onConflict: 'id' })
 }
+
+export async function updateSleepOffsetMinutes(userId: string, minutes: number): Promise<void> {
+  await supabase.from('profiles').upsert({ id: userId, sleep_offset_minutes: minutes }, { onConflict: 'id' })
+}

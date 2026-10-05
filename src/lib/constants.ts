@@ -51,7 +51,7 @@ export const markerLabels = {
   fodmap_hoch: 'FODMAP hoch',
   zuckeraustausch: 'Zuckeraustauschstoffe',
   viel_zucker: 'Viel Zucker',
-  fettig_frittiert: 'Fettig/frittiert',
+  fettreich: 'Fettreich',
   scharf: 'Scharf',
   rotes_fleisch: 'Rotes Fleisch',
   verarbeitetes_fleisch: 'Verarbeitetes Fleisch',

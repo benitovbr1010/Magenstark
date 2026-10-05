@@ -5,6 +5,8 @@ import { ToggleChip } from '../components/ToggleChip'
 import { useAuth } from '../lib/AuthContext'
 import { dayTagLabels } from '../lib/constants'
 import { formatGermanDate, toDateOnly } from '../lib/datetime'
+import { fetchProfile } from '../lib/profile'
+import { computeFellAsleepAt, DEFAULT_SLEEP_OFFSET_MINUTES, fetchSleepLog, upsertSleepLog } from '../lib/sleep'
 import { supabase } from '../lib/supabaseClient'
 
 function formatTimeInput(iso: string | null): string {
@@ -19,6 +21,11 @@ function buildTimestamp(baseDate: Date, timeStr: string): string | null {
   const d = new Date(baseDate)
   d.setHours(h, m, 0, 0)
   return d.toISOString()
+}
+
+function nowTimeInput(): string {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 const tagKeys = Object.keys(dayTagLabels) as (keyof typeof dayTagLabels)[]
@@ -48,43 +55,43 @@ export function DayClosing() {
   const { session } = useAuth()
   const dateParam = searchParams.get('date')
   const today = dateParam ? new Date(`${dateParam}T12:00:00`) : new Date()
-  const previousDay = new Date(today)
-  previousDay.setDate(previousDay.getDate() - 1)
 
   const [stress, setStress] = useState<1 | 2 | 3 | 4 | 5>(3)
-  const [sleep, setSleep] = useState<1 | 2 | 3 | 4 | 5>(3)
   const [tags, setTags] = useState<(keyof typeof dayTagLabels)[]>([])
   const [note, setNote] = useState('')
   const [bedtime, setBedtime] = useState('')
-  const [wakeTime, setWakeTime] = useState('')
+  const [sleepOffsetMinutes, setSleepOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!session) return
-    supabase
-      .from('day_closings')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .eq('date', toDateOnly(today))
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setStress(data.stress as 1 | 2 | 3 | 4 | 5)
-          setSleep(data.sleep as 1 | 2 | 3 | 4 | 5)
-          setTags(data.tags as (keyof typeof dayTagLabels)[])
-          setNote(data.note ?? '')
-          setBedtime(formatTimeInput(data.bedtime))
-          setWakeTime(formatTimeInput(data.wake_time))
-        }
-        setLoading(false)
-      })
+    Promise.all([
+      supabase.from('day_closings').select('*').eq('user_id', session.user.id).eq('date', toDateOnly(today)).maybeSingle(),
+      fetchSleepLog(session.user.id, today),
+      fetchProfile(session.user.id),
+    ]).then(([dayClosingRes, sleepLog, profile]) => {
+      const dc = dayClosingRes.data
+      if (dc) {
+        setStress(dc.stress as 1 | 2 | 3 | 4 | 5)
+        setTags(dc.tags as (keyof typeof dayTagLabels)[])
+        setNote(dc.note ?? '')
+      }
+      setBedtime(sleepLog?.bed_at ? formatTimeInput(sleepLog.bed_at) : nowTimeInput())
+      setSleepOffsetMinutes(profile?.sleep_offset_minutes ?? DEFAULT_SLEEP_OFFSET_MINUTES)
+      setLoading(false)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, dateParam])
 
   function toggleTag(key: keyof typeof dayTagLabels) {
     setTags((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
   }
+
+  const bedAtIso = buildTimestamp(today, bedtime)
+  const fellAsleepLabel = bedAtIso
+    ? computeFellAsleepAt(new Date(bedAtIso), sleepOffsetMinutes).toTimeString().slice(0, 5)
+    : null
 
   async function handleSave() {
     if (!session) return
@@ -94,14 +101,15 @@ export function DayClosing() {
         user_id: session.user.id,
         date: toDateOnly(today),
         stress,
-        sleep,
         tags,
         note: note.trim() || null,
-        bedtime: buildTimestamp(previousDay, bedtime),
-        wake_time: buildTimestamp(today, wakeTime),
       },
       { onConflict: 'user_id,date' },
     )
+    if (!error) {
+      const fellAsleepAt = bedAtIso ? computeFellAsleepAt(new Date(bedAtIso), sleepOffsetMinutes).toISOString() : null
+      await upsertSleepLog(session.user.id, today, { bed_at: bedAtIso, fell_asleep_at: fellAsleepAt })
+    }
     setSaving(false)
     if (!error) {
       navigate('/')
@@ -129,41 +137,6 @@ export function DayClosing() {
         </div>
 
         <div>
-          <p className="text-sm font-medium text-text">Schlaf letzte Nacht</p>
-          <div className="mt-2">
-            <RatingDots value={sleep} onChange={setSleep} />
-          </div>
-          <div className="mt-1 flex justify-between text-xs text-text-tertiary" style={{ maxWidth: '9.5rem' }}>
-            <span>schlecht</span>
-            <span>gut</span>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-sm font-medium text-text">Schlafenszeiten (optional)</p>
-          <div className="mt-2 flex gap-3">
-            <label className="flex-1">
-              <span className="text-xs text-text-tertiary">Ins Bett</span>
-              <input
-                type="time"
-                value={bedtime}
-                onChange={(e) => setBedtime(e.target.value)}
-                className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
-              />
-            </label>
-            <label className="flex-1">
-              <span className="text-xs text-text-tertiary">Aufgestanden</span>
-              <input
-                type="time"
-                value={wakeTime}
-                onChange={(e) => setWakeTime(e.target.value)}
-                className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
-              />
-            </label>
-          </div>
-        </div>
-
-        <div>
           <p className="text-sm font-medium text-text">Was trifft zu?</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {tagKeys.map((key) => (
@@ -179,6 +152,19 @@ export function DayClosing() {
           rows={3}
           className="rounded-2xl border border-border bg-card px-4 py-3 text-text outline-none focus:border-primary"
         />
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-sm font-medium text-text">Ich gehe jetzt ins Bett</p>
+          <input
+            type="time"
+            value={bedtime}
+            onChange={(e) => setBedtime(e.target.value)}
+            className="mt-2 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
+          />
+          {fellAsleepLabel && (
+            <p className="mt-2 text-xs text-text-tertiary">Voraussichtlich eingeschlafen: {fellAsleepLabel} Uhr</p>
+          )}
+        </div>
 
         <button
           type="button"

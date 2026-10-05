@@ -11,7 +11,9 @@ import { useAuth } from '../lib/AuthContext'
 import { stepStatusLabels, themeModeLabels } from '../lib/constants'
 import type { Database } from '../lib/database.types'
 import { exportAsCsv, exportAsJson, fetchAllUserData } from '../lib/exportData'
+import { fetchProfile, updateSleepOffsetMinutes } from '../lib/profile'
 import { fetchSavedMeals, type SavedMealRow } from '../lib/savedMeals'
+import { DEFAULT_SLEEP_OFFSET_MINUTES } from '../lib/sleep'
 import { supabase } from '../lib/supabaseClient'
 import { type ThemeMode, useTheme } from '../lib/theme'
 
@@ -37,6 +39,7 @@ export function MyWay() {
   const [savedMealSheetOpen, setSavedMealSheetOpen] = useState(false)
   const [ingredientsSheetOpen, setIngredientsSheetOpen] = useState(false)
   const [exportSheetOpen, setExportSheetOpen] = useState(false)
+  const [sleepOffsetMinutes, setSleepOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
 
   function reloadSavedMeals() {
     if (!session) return
@@ -44,6 +47,20 @@ export function MyWay() {
   }
 
   useEffect(reloadSavedMeals, [session])
+
+  useEffect(() => {
+    if (!session) return
+    fetchProfile(session.user.id).then((profile) => {
+      setSleepOffsetMinutes(profile?.sleep_offset_minutes ?? DEFAULT_SLEEP_OFFSET_MINUTES)
+    })
+  }, [session])
+
+  function handleSleepOffsetChange(minutes: number) {
+    if (!session) return
+    const clamped = Math.max(0, Math.min(120, minutes))
+    setSleepOffsetMinutes(clamped)
+    updateSleepOffsetMinutes(session.user.id, clamped)
+  }
 
   async function handleExport(format: 'json' | 'csv') {
     if (!session) return
@@ -239,6 +256,30 @@ export function MyWay() {
             {(Object.keys(themeModeLabels) as ThemeMode[]).map((mode) => (
               <ToggleChip key={mode} label={themeModeLabels[mode]} active={themeMode === mode} onClick={() => setThemeMode(mode)} />
             ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-sm font-medium text-text">Einschlafzeit-Offset</p>
+          <p className="mt-1 text-xs text-text-tertiary">
+            Minuten nach dem Ins-Bett-Gehen, die automatisch als Einschlafzeit angenommen werden.
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => handleSleepOffsetChange(sleepOffsetMinutes - 5)}
+              className="h-9 w-9 rounded-full border border-border text-text-secondary"
+            >
+              −
+            </button>
+            <span className="text-sm font-medium text-text">{sleepOffsetMinutes} Min</span>
+            <button
+              type="button"
+              onClick={() => handleSleepOffsetChange(sleepOffsetMinutes + 5)}
+              className="h-9 w-9 rounded-full border border-border text-text-secondary"
+            >
+              +
+            </button>
           </div>
         </div>
 

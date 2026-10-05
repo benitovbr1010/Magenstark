@@ -3,14 +3,21 @@
 //
 // Konsistenz-Architektur (statt: KI schätzt Marker direkt pro Mahlzeit, was bei identischem Text
 // zu unterschiedlichen Ergebnissen führen kann):
-// 1) KI erkennt aus dem Text nur Zutaten (+ Zubereitungs-Marker scharf/fettig_frittiert, nur wenn im
-//    Text explizit beschrieben) und Metadaten (Typ, Uhrzeit, Zusammenfassung). Dieser Schritt wird
-//    über einen Hash des normalisierten Texts gecacht (meal_analysis_cache) – identischer Text liefert
-//    immer dieselbe Zutatenliste.
+// 1) KI erkennt aus dem Text nur Zutaten (inkl. Mengeneinschätzung wenig/normal/viel + ob frittiert/
+//    paniert zubereitet) + Zubereitungs-Marker scharf (nur wenn im Text explizit beschrieben) und
+//    Metadaten (Typ, Uhrzeit, Zusammenfassung). Dieser Schritt wird über einen Hash des normalisierten
+//    Texts gecacht (meal_analysis_cache) – identischer Text liefert immer dieselbe Zutatenliste.
 // 2) Jede Zutat wird GENAU EINMAL dauerhaft bewertet (ingredient_profiles, geteiltes Nachschlagewerk).
 //    Neue Zutaten werden hier klassifiziert und gespeichert, bekannte Zutaten nie erneut geschätzt.
 // 3) Die Marker/Good-Marker/FODMAP-Quellen/guten Zutaten der Mahlzeit werden im Code aus den
 //    gespeicherten Zutaten-Profilen zusammengesetzt (Vereinigung), nicht von der KI frei vergeben.
+// Fett-Regeln (feste Regeln im CODE statt freier KI-Einschätzung):
+// - "gesunde_fette" wird beim Klassifizieren NUR für eine feste Zutatenliste erzwungen (Öle, Nüsse,
+//   Samen, Avocado, fetter Fisch) – was die KI vorschlägt, wird dafür überschrieben/gefiltert.
+// - "fettreich" (Auslöser) wird NICHT aus ingredient_profiles übernommen, sondern pro Mahlzeit aus der
+//   Mengeneinschätzung + Zubereitungsart der Zutaten berechnet: Zubereitung (frittiert/paniert) ODER
+//   eine fettreiche Zutat (Käse, Butter, Sahne, Wurst, Speck, Öle, oder die gesunden Fette oben) in
+//   GROSSER Menge.
 // Beide KI-Aufrufe laufen mit temperature 0 und festem Tool-Schema für maximale Konsistenz.
 // Nutzt den Service-Role-Client (umgeht RLS), da ingredient_profiles/meal_analysis_cache keine
 // Insert-Policies für Clients haben.
@@ -25,8 +32,36 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const MEAL_TYPES = ['fruehstueck', 'mittag', 'abend', 'snack'] as const
 
 // Zubereitungs-Marker: Eigenschaft der Zubereitung, nicht einer bestimmten Zutat – werden direkt aus
-// dem Text erkannt, nie aus ingredient_profiles übernommen.
-const PREP_MARKERS = ['fettig_frittiert', 'scharf'] as const
+// dem Text erkannt, nie aus ingredient_profiles übernommen. "fettreich" läuft separat über die
+// Mengeneinschätzung pro Zutat (siehe FAT_DENSE_KEYWORDS unten), nicht über diesen Mechanismus.
+const PREP_MARKERS = ['scharf'] as const
+
+const INGREDIENT_AMOUNTS = ['wenig', 'normal', 'viel'] as const
+
+// Feste Fett-Regeln: "gesunde_fette" darf nur für diese Zutaten vergeben werden (CODE entscheidet,
+// nicht die KI). Wird sowohl beim Klassifizieren neuer Zutaten erzwungen als auch für die
+// Mengen-basierte "fettreich"-Entscheidung pro Mahlzeit verwendet (diese Zutaten gelten auch als
+// fettreich, nur eben als "gute" Fettquelle).
+const HEALTHY_FAT_KEYWORDS = [
+  'olivenöl', 'rapsöl', 'leinöl',
+  'nuss', 'nüsse', 'mandel', 'walnuss', 'haselnuss', 'cashew', 'pistazie', 'erdnuss', 'macadamia', 'paranuss',
+  'samen', 'kerne', 'chiasamen', 'leinsamen', 'kürbiskern', 'sonnenblumenkern', 'hanfsamen',
+  'avocado',
+  'lachs', 'makrele', 'hering', 'thunfisch', 'sardine', 'forelle',
+]
+const OTHER_FAT_DENSE_KEYWORDS = [
+  'öl', 'käse', 'butter', 'sahne', 'creme fraiche', 'crème fraîche', 'mascarpone',
+  'wurst', 'speck', 'bacon', 'salami', 'schmalz', 'margarine', 'mayonnaise', 'majo',
+  'kokosmilch', 'kokosöl',
+]
+
+function isHealthyFatIngredient(name: string): boolean {
+  return HEALTHY_FAT_KEYWORDS.some((kw) => name.includes(kw))
+}
+
+function isFatDenseIngredient(name: string): boolean {
+  return isHealthyFatIngredient(name) || OTHER_FAT_DENSE_KEYWORDS.some((kw) => name.includes(kw))
+}
 
 // Marker, die einer Zutat zugeordnet werden (alle MARKERS aus constants.ts außer den Prep-Markern).
 const INGREDIENT_MARKERS = [
@@ -66,17 +101,34 @@ const extractionTool = {
       main_foods: { type: 'array', items: { type: 'string' }, description: 'Hauptzutaten/Lebensmittel, max 6, für die Anzeige' },
       ingredients: {
         type: 'array',
-        items: { type: 'string' },
+        items: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description:
+                'Normalisierter, kleingeschriebener Einzahl-Zutatenname (z. B. "zwiebel", "weizennudeln", "rinderhack").',
+            },
+            amount: {
+              type: 'string',
+              enum: INGREDIENT_AMOUNTS as unknown as string[],
+              description: 'Grobe Mengeneinschätzung DIESER Zutat in der Mahlzeit. Bei Unsicherheit "normal".',
+            },
+            fried: {
+              type: 'boolean',
+              description:
+                'Nur true, wenn der Text EXPLIZIT beschreibt, dass genau diese Zutat frittiert/paniert/in reichlich Öl gebraten wurde. Nicht raten.',
+            },
+          },
+          required: ['name', 'amount', 'fried'],
+        },
         description:
-          'Normalisierte, kleingeschriebene Einzahl-Zutatennamen (z. B. "zwiebel", "weizennudeln", "rinderhack"), inkl. typischer ' +
-          'versteckter Zutaten (z. B. Bolognese → zwiebel, knoblauch, tomate, hackfleisch, öl). Max 15, keine Duplikate.',
+          'Zutaten inkl. typischer versteckter Zutaten (z. B. Bolognese → zwiebel, knoblauch, tomate, hackfleisch, öl). Max 15, keine Duplikate.',
       },
       prep_markers: {
         type: 'array',
         items: { type: 'string', enum: PREP_MARKERS as unknown as string[] },
-        description:
-          'Nur setzen, wenn der Text EXPLIZIT eine entsprechende Zubereitung beschreibt (frittiert/paniert/viel Öl gebraten für ' +
-          'fettig_frittiert; scharf gewürzt/scharfe Sauce/Chili für scharf). Nicht raten.',
+        description: 'Nur setzen, wenn der Text EXPLIZIT scharf gewürzt/scharfe Sauce/Chili beschreibt. Nicht raten.',
       },
     },
     required: ['meal_type', 'eaten_at_hint', 'summary', 'main_foods', 'ingredients', 'prep_markers'],
@@ -157,12 +209,14 @@ async function callClaude(system: string, userContent: string, tool: Record<stri
   return toolUse.input
 }
 
+type IngredientExtraction = { name: string; amount: (typeof INGREDIENT_AMOUNTS)[number]; fried: boolean }
+
 type Extraction = {
   meal_type: string
   eaten_at_hint: string | null
   summary: string
   main_foods: string[]
-  ingredients: string[]
+  ingredients: IngredientExtraction[]
   prep_markers: string[]
 }
 
@@ -197,20 +251,33 @@ Deno.serve(async (req) => {
     } else {
       const input = (await callClaude(
         'Du zerlegst kurze deutsche Freitext-Beschreibungen von Mahlzeiten für ein Verdauungstagebuch in Metadaten und eine ' +
-          'normalisierte Zutatenliste. Nimm typische (auch versteckte) Zutaten realistisch an (z. B. Bolognese enthält meist ' +
-          'Zwiebel, Knoblauch, Tomate, Hackfleisch, Öl), aber erfinde bei echter Unsicherheit keine Zutaten. Zutatennamen immer ' +
-          'kleingeschrieben und in der Grundform (z. B. "zwiebel" statt "Zwiebeln"). Zubereitungs-Marker (scharf, fettig_frittiert) ' +
-          'nur setzen, wenn der Text das wirklich explizit beschreibt. Ton: sachlich, kurz.',
+          'normalisierte Zutatenliste mit Mengeneinschätzung. Nimm typische (auch versteckte) Zutaten realistisch an (z. B. ' +
+          'Bolognese enthält meist Zwiebel, Knoblauch, Tomate, Hackfleisch, Öl), aber erfinde bei echter Unsicherheit keine ' +
+          'Zutaten. Zutatennamen immer kleingeschrieben und in der Grundform (z. B. "zwiebel" statt "Zwiebeln"). Schätze pro ' +
+          'Zutat die Menge in der Mahlzeit ein (wenig/normal/viel) und setze "fried" nur, wenn der Text explizit beschreibt, ' +
+          'dass genau diese Zutat frittiert/paniert/in reichlich Öl gebraten wurde. Den Zubereitungs-Marker "scharf" nur setzen, ' +
+          'wenn der Text das wirklich explizit beschreibt. Ton: sachlich, kurz.',
         `Aktuelle Uhrzeit: ${currentTime}\n\nText: "${text}"`,
         extractionTool,
       )) as Extraction
+
+      const seenIngredientNames = new Set<string>()
+      const ingredients: IngredientExtraction[] = []
+      for (const raw of input.ingredients ?? []) {
+        const name = normalizeIngredientName((raw as { name?: string }).name ?? '')
+        if (!name || seenIngredientNames.has(name)) continue
+        seenIngredientNames.add(name)
+        const amount = INGREDIENT_AMOUNTS.includes((raw as IngredientExtraction).amount) ? (raw as IngredientExtraction).amount : 'normal'
+        ingredients.push({ name, amount, fried: Boolean((raw as IngredientExtraction).fried) })
+        if (ingredients.length >= 15) break
+      }
 
       extraction = {
         meal_type: MEAL_TYPES.includes(input.meal_type as (typeof MEAL_TYPES)[number]) ? input.meal_type : 'snack',
         eaten_at_hint: input.eaten_at_hint ?? null,
         summary: input.summary,
         main_foods: (input.main_foods ?? []).slice(0, 6),
-        ingredients: Array.from(new Set((input.ingredients ?? []).map(normalizeIngredientName).filter(Boolean))).slice(0, 15),
+        ingredients,
         prep_markers: (input.prep_markers ?? []).filter((m) => PREP_MARKERS.includes(m as (typeof PREP_MARKERS)[number])),
       }
 
@@ -220,7 +287,7 @@ Deno.serve(async (req) => {
     }
 
     // 2) Fehlende Zutaten-Profile nachladen/klassifizieren.
-    const ingredientNames = extraction.ingredients
+    const ingredientNames = extraction.ingredients.map((i) => i.name)
     const existingProfiles: Record<string, { markers: string[]; good_markers: string[]; fodmap_types: string[] }> = {}
 
     if (ingredientNames.length > 0) {
@@ -245,13 +312,22 @@ Deno.serve(async (req) => {
         classifyIngredientsTool,
       )) as { ingredients: { name: string; markers: string[]; good_markers: string[]; fodmap_types: string[]; note: string | null }[] }
 
-      const newProfiles = (classifyInput.ingredients ?? []).map((c) => ({
-        name: normalizeIngredientName(c.name),
-        markers: (c.markers ?? []).filter((m) => INGREDIENT_MARKERS.includes(m as (typeof INGREDIENT_MARKERS)[number])),
-        good_markers: (c.good_markers ?? []).filter((m) => INGREDIENT_GOOD_MARKERS.includes(m as (typeof INGREDIENT_GOOD_MARKERS)[number])),
-        fodmap_types: (c.fodmap_types ?? []).filter((f) => FODMAP_TYPES.includes(f as (typeof FODMAP_TYPES)[number])),
-        note: c.note ?? null,
-      }))
+      const newProfiles = (classifyInput.ingredients ?? []).map((c) => {
+        const name = normalizeIngredientName(c.name)
+        // "gesunde_fette" ist eine feste Regel (CODE entscheidet), nicht die Einschätzung der KI:
+        // nur für die feste Zutatenliste erzwingen, sonst entfernen – egal was die KI vorschlägt.
+        const goodMarkers = (c.good_markers ?? []).filter(
+          (m) => INGREDIENT_GOOD_MARKERS.includes(m as (typeof INGREDIENT_GOOD_MARKERS)[number]) && m !== 'gesunde_fette',
+        )
+        if (isHealthyFatIngredient(name)) goodMarkers.push('gesunde_fette')
+        return {
+          name,
+          markers: (c.markers ?? []).filter((m) => INGREDIENT_MARKERS.includes(m as (typeof INGREDIENT_MARKERS)[number])),
+          good_markers: goodMarkers,
+          fodmap_types: (c.fodmap_types ?? []).filter((f) => FODMAP_TYPES.includes(f as (typeof FODMAP_TYPES)[number])),
+          note: c.note ?? null,
+        }
+      })
 
       // Zutaten, die die KI bei der Klassifizierung evtl. ausgelassen hat, trotzdem mit leerem Profil anlegen,
       // damit sie beim nächsten Mal nicht erneut als "fehlend" gelten.
@@ -290,12 +366,23 @@ Deno.serve(async (req) => {
       if (profile.good_markers.length > 0) goodFoods.push(name)
     }
 
+    // "fettreich" ist keine Eigenschaft des Zutaten-Profils, sondern hängt von Menge/Zubereitung IN
+    // DIESER Mahlzeit ab: Zubereitung (frittiert/paniert) ODER fettreiche Zutat in großer Menge.
+    const ingredientDetails: Record<string, { amount: string; fried: boolean }> = {}
+    for (const ing of extraction.ingredients) {
+      ingredientDetails[ing.name] = { amount: ing.amount, fried: ing.fried }
+      if (ing.fried || (ing.amount === 'viel' && isFatDenseIngredient(ing.name))) {
+        markerSet.add('fettreich')
+      }
+    }
+
     const result = {
       meal_type: extraction.meal_type,
       eaten_at_hint: extraction.eaten_at_hint,
       summary: extraction.summary,
       main_foods: extraction.main_foods,
       ingredients: ingredientNames,
+      ingredient_details: ingredientDetails,
       prep_markers: extraction.prep_markers,
       markers: Array.from(markerSet),
       good_markers: Array.from(goodMarkerSet),

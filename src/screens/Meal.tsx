@@ -14,7 +14,12 @@ import { useAuth } from '../lib/AuthContext'
 import { goodMarkerLabels, markerLabels, mealTypeLabels, portionLabels, type PortionKey } from '../lib/constants'
 import { fetchLatestContext, type ActiveContext } from '../lib/context'
 import { withDatePart } from '../lib/datetime'
-import { computeMealMarkers, fetchIngredientProfiles, type IngredientProfileRow } from '../lib/ingredientProfiles'
+import {
+  computeMealMarkers,
+  fetchIngredientProfiles,
+  type IngredientDetails,
+  type IngredientProfileRow,
+} from '../lib/ingredientProfiles'
 import { goodMarkerArticle, markerArticle, type KnowledgeArticle } from '../lib/knowledge'
 import { fetchSavedMeals, type SavedMealRow } from '../lib/savedMeals'
 import { supabase } from '../lib/supabaseClient'
@@ -54,6 +59,7 @@ export function Meal() {
   const [goodMarkers, setGoodMarkers] = useState<GoodMarker[]>([])
   const [goodFoods, setGoodFoods] = useState<string[]>([])
   const [ingredients, setIngredients] = useState<string[]>([])
+  const [ingredientDetails, setIngredientDetails] = useState<IngredientDetails>({})
   const [prepMarkers, setPrepMarkers] = useState<string[]>([])
   const [fodmapSources, setFodmapSources] = useState<string[]>([])
   const [portion, setPortion] = useState<PortionKey | null>(null)
@@ -95,6 +101,7 @@ export function Meal() {
           setGoodMarkers(data.good_markers as GoodMarker[])
           setGoodFoods(data.good_foods ?? [])
           setIngredients(data.ingredients ?? [])
+          setIngredientDetails((data.ingredient_details as IngredientDetails) ?? {})
           setPrepMarkers(data.prep_markers ?? [])
           setFodmapSources(data.fodmap_sources ?? [])
           setPortion((data.portion as PortionKey | null) ?? null)
@@ -133,6 +140,7 @@ export function Meal() {
     setGoodMarkers(data.good_markers ?? [])
     setGoodFoods(data.good_foods ?? [])
     setIngredients(data.ingredients ?? [])
+    setIngredientDetails((data.ingredient_details as IngredientDetails) ?? {})
     setPrepMarkers(data.prep_markers ?? [])
     setFodmapSources(data.fodmap_sources ?? [])
     if (data.ingredients?.length) setIngredientProfiles(await fetchIngredientProfiles(data.ingredients))
@@ -170,6 +178,7 @@ export function Meal() {
     setGoodMarkers(meal.good_markers as GoodMarker[])
     setGoodFoods(meal.good_foods)
     setIngredients([])
+    setIngredientDetails({})
     setPrepMarkers([])
     setFodmapSources(meal.fodmap_sources ?? [])
     setIngredientProfiles({})
@@ -190,6 +199,7 @@ export function Meal() {
       good_markers: goodMarkers,
       good_foods: goodFoods,
       ingredients,
+      ingredient_details: ingredientDetails,
       prep_markers: prepMarkers,
       fodmap_sources: fodmapSources,
       portion,
@@ -221,7 +231,7 @@ export function Meal() {
 
   const markerChips = capChips(markers)
   const goodChips = capChips(goodMarkers)
-  const breakdown = computeMealMarkers(ingredients, prepMarkers, ingredientProfiles)
+  const breakdown = computeMealMarkers(ingredients, prepMarkers, ingredientProfiles, ingredientDetails)
   const savedMealDraft: SavedMealDraft = {
     summary,
     meal_type: mealType,

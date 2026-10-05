@@ -124,7 +124,7 @@ export type Database = {
           date: string
           id: string
           note: string | null
-          sleep: number
+          sleep: number | null
           stress: number
           tags: string[]
           user_id: string
@@ -136,7 +136,7 @@ export type Database = {
           date: string
           id?: string
           note?: string | null
-          sleep: number
+          sleep?: number | null
           stress: number
           tags?: string[]
           user_id: string
@@ -148,7 +148,7 @@ export type Database = {
           date?: string
           id?: string
           note?: string | null
-          sleep?: number
+          sleep?: number | null
           stress?: number
           tags?: string[]
           user_id?: string
@@ -357,6 +357,7 @@ export type Database = {
           good_foods: string[]
           good_markers: string[]
           id: string
+          ingredient_details: Json
           ingredients: string[]
           main_foods: string[]
           markers: string[]
@@ -377,6 +378,7 @@ export type Database = {
           good_foods?: string[]
           good_markers?: string[]
           id?: string
+          ingredient_details?: Json
           ingredients?: string[]
           main_foods?: string[]
           markers?: string[]
@@ -397,6 +399,7 @@ export type Database = {
           good_foods?: string[]
           good_markers?: string[]
           id?: string
+          ingredient_details?: Json
           ingredients?: string[]
           main_foods?: string[]
           markers?: string[]
@@ -417,6 +420,7 @@ export type Database = {
           id: string
           medications: string | null
           name: string | null
+          sleep_offset_minutes: number
           symptoms_since: string | null
           theme_preference: string | null
         }
@@ -425,6 +429,7 @@ export type Database = {
           id: string
           medications?: string | null
           name?: string | null
+          sleep_offset_minutes?: number
           symptoms_since?: string | null
           theme_preference?: string | null
         }
@@ -433,6 +438,7 @@ export type Database = {
           id?: string
           medications?: string | null
           name?: string | null
+          sleep_offset_minutes?: number
           symptoms_since?: string | null
           theme_preference?: string | null
         }
@@ -477,6 +483,42 @@ export type Database = {
           name?: string
           summary?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      sleep_logs: {
+        Row: {
+          bed_at: string | null
+          created_at: string
+          fell_asleep_at: string | null
+          id: string
+          night_of: string
+          note: string | null
+          quality: number | null
+          user_id: string
+          woke_at: string | null
+        }
+        Insert: {
+          bed_at?: string | null
+          created_at?: string
+          fell_asleep_at?: string | null
+          id?: string
+          night_of: string
+          note?: string | null
+          quality?: number | null
+          user_id?: string
+          woke_at?: string | null
+        }
+        Update: {
+          bed_at?: string | null
+          created_at?: string
+          fell_asleep_at?: string | null
+          id?: string
+          night_of?: string
+          note?: string | null
+          quality?: number | null
+          user_id?: string
+          woke_at?: string | null
         }
         Relationships: []
       }

@@ -42,6 +42,16 @@ export const knowledgeArticles: KnowledgeArticle[] = [
     ],
   },
   {
+    slug: 'fett-und-verdauung',
+    title: 'Fett und Verdauung',
+    body: [
+      'Nicht alle Fette sind gleich: Ungesättigte Fette aus Olivenöl, Raps- und Leinöl, Nüssen, Samen, Avocado und fettem Fisch (z. B. Lachs, Makrele) gelten als "gesunde Fette" und werden meist gut vertragen.',
+      'Gesättigte, stark verarbeitete Fettquellen wie Käse, Butter, Sahne, Wurst oder Speck sind dagegen eher Belastung als Nutzen für die Verdauung – unabhängig von der Menge NIE als "gesunde Fette" markiert.',
+      'Bei jeder Fettquelle gilt aber: Die Menge macht den Unterschied. Auch gesunde Fette können bei sehr großer Menge in einer Mahlzeit – genau wie Frittiertes, Paniertes oder in viel Öl Gebratenes – die Magenentleerung verlangsamen und Völlegefühl, Übelkeit oder Durchfall begünstigen.',
+      'Deshalb wird "Fettreich" als möglicher Auslöser markiert, wenn eine Mahlzeit frittiert/paniert zubereitet wurde oder eine fettreiche Zutat in großer Menge enthält – unabhängig davon, ob die Zutat sonst als gesundes Fett gilt.',
+    ],
+  },
+  {
     slug: 'arztbesuch',
     title: 'Wann zeitnah zum Arzt?',
     body: [
@@ -60,7 +70,7 @@ export const markerExplanations: Record<keyof typeof markerLabels, string> = {
   fodmap_hoch: 'Schwer verdauliche, vergärbare Kohlenhydrate (siehe Artikel „Was sind FODMAPs?“). Können Blähungen und Bauchschmerzen begünstigen.',
   zuckeraustausch: 'Zuckeraustauschstoffe wie Sorbit oder Xylit werden im Darm kaum aufgenommen und wirken ab einer gewissen Menge abführend.',
   viel_zucker: 'Große Mengen Zucker auf einmal können die Verdauung belasten und bei empfindlichem Darm Beschwerden auslösen.',
-  fettig_frittiert: 'Fettreiche, frittierte Speisen verlangsamen die Magenentleerung und können Völlegefühl oder Übelkeit begünstigen.',
+  fettreich: 'Große Fettmengen – egal ob durch Frittieren/Panieren oder reichlich Käse, Butter, Sahne, Wurst oder Speck – verlangsamen die Magenentleerung und können Völlegefühl, Übelkeit oder Durchfall begünstigen. Entscheidend ist die Menge, nicht nur die Zutat.',
   scharf: 'Scharfe Gewürze wie Chili können die Darmschleimhaut reizen und bei empfindlichem Darm Beschwerden auslösen.',
   rotes_fleisch: 'Rotes Fleisch ist fett- und proteinreich und kann bei manchen Menschen die Verdauung verlangsamen.',
   verarbeitetes_fleisch: 'Wurst und verarbeitetes Fleisch enthalten oft viel Fett, Salz und Zusatzstoffe, die den Darm reizen können.',

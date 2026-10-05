@@ -6,6 +6,7 @@ import { ContextSheet } from '../components/ContextSheet'
 import { KnowledgeSheet } from '../components/KnowledgeSheet'
 import { MarkerChip } from '../components/MarkerChip'
 import { MarkerOrigins } from '../components/MarkerOrigins'
+import { MorningCheckCard } from '../components/MorningCheckCard'
 import { WeekStrip } from '../components/WeekStrip'
 import { useAuth } from '../lib/AuthContext'
 import {
@@ -30,8 +31,14 @@ import {
   startOfDay,
   toDateOnly,
 } from '../lib/datetime'
-import { computeMealMarkers, fetchIngredientProfiles, type IngredientProfileRow } from '../lib/ingredientProfiles'
+import {
+  computeMealMarkers,
+  fetchIngredientProfiles,
+  type IngredientDetails,
+  type IngredientProfileRow,
+} from '../lib/ingredientProfiles'
 import { goodMarkerArticle, markerArticle, type KnowledgeArticle } from '../lib/knowledge'
+import { fetchSleepLog } from '../lib/sleep'
 import { supabase } from '../lib/supabaseClient'
 import { addWaterLog, fetchWaterLogs, formatLiters, removeWaterLog, totalMl, type WaterLogRow } from '../lib/water'
 
@@ -62,7 +69,7 @@ export function Today() {
   const [closedDates, setClosedDates] = useState<Set<string>>(new Set())
   const [infoArticle, setInfoArticle] = useState<KnowledgeArticle | null>(null)
   const [ingredientProfiles, setIngredientProfiles] = useState<Record<string, IngredientProfileRow>>({})
-  const [sleepNudge, setSleepNudge] = useState<{ date: string } | null>(null)
+  const [showMorningBanner, setShowMorningBanner] = useState(false)
   const [missedClosingNudge, setMissedClosingNudge] = useState<{ date: string } | null>(null)
 
   function reloadContext() {
@@ -100,17 +107,19 @@ export function Today() {
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
     const yesterdayStr = toDateOnly(yesterday)
-    if (localStorage.getItem(`sleepNudgeSkipped_${yesterdayStr}`)) return
-    supabase
-      .from('day_closings')
-      .select('bedtime, wake_time')
-      .eq('user_id', session.user.id)
-      .eq('date', yesterdayStr)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data && (!data.bedtime || !data.wake_time)) setSleepNudge({ date: yesterdayStr })
-      })
+    if (localStorage.getItem(`morningCheckSkipped_${yesterdayStr}`)) return
+    if (new Date().getHours() >= 14) return
+    fetchSleepLog(session.user.id, yesterday).then((log) => {
+      setShowMorningBanner(!log?.quality)
+    })
   }, [session])
+
+  function dismissMorningBanner() {
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    localStorage.setItem(`morningCheckSkipped_${toDateOnly(yesterday)}`, '1')
+    setShowMorningBanner(false)
+  }
 
   useEffect(() => {
     if (!session) return
@@ -128,11 +137,6 @@ export function Today() {
         if (!data) setMissedClosingNudge({ date: yesterdayStr })
       })
   }, [session])
-
-  function dismissSleepNudge() {
-    if (sleepNudge) localStorage.setItem(`sleepNudgeSkipped_${sleepNudge.date}`, '1')
-    setSleepNudge(null)
-  }
 
   function dismissMissedClosingNudge() {
     if (missedClosingNudge) localStorage.setItem(`dayClosingNudgeSkipped_${missedClosingNudge.date}`, '1')
@@ -255,6 +259,16 @@ export function Today() {
             </button>
           </div>
         </div>
+      )}
+
+      {showMorningBanner && session && (
+        <MorningCheckCard
+          userId={session.user.id}
+          targetDate={new Date()}
+          variant="banner"
+          onDismiss={dismissMorningBanner}
+          onSaved={() => setShowMorningBanner(false)}
+        />
       )}
 
       <div className="mt-3">
@@ -395,7 +409,12 @@ export function Today() {
                     {(() => {
                       const hasIngredients = (entry.row.ingredients ?? []).length > 0
                       const breakdown = hasIngredients
-                        ? computeMealMarkers(entry.row.ingredients, entry.row.prep_markers ?? [], ingredientProfiles)
+                        ? computeMealMarkers(
+                            entry.row.ingredients,
+                            entry.row.prep_markers ?? [],
+                            ingredientProfiles,
+                            (entry.row.ingredient_details as IngredientDetails) ?? {},
+                          )
                         : null
                       const markerList = (breakdown?.markers ?? entry.row.markers) as (keyof typeof markerLabels)[]
                       const goodMarkerList = (breakdown?.goodMarkers ?? entry.row.good_markers) as (keyof typeof goodMarkerLabels)[]
@@ -456,27 +475,7 @@ export function Today() {
         )}
       </div>
 
-      {isToday && sleepNudge && (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
-          <span className="text-sm text-text">Wann bist du gestern ins Bett / aufgestanden?</span>
-          <div className="flex shrink-0 gap-2">
-            <Link
-              to={`/tagesabschluss?date=${sleepNudge.date}`}
-              onClick={dismissSleepNudge}
-              className="rounded-full bg-primary-light px-3 py-1.5 text-sm font-medium text-primary-text"
-            >
-              Angeben
-            </Link>
-            <button
-              type="button"
-              onClick={dismissSleepNudge}
-              className="rounded-full border border-border px-3 py-1.5 text-sm font-medium text-text-secondary"
-            >
-              Überspringen
-            </button>
-          </div>
-        </div>
-      )}
+      {!isFutureDay && session && <MorningCheckCard userId={session.user.id} targetDate={selectedDate} variant="inline" />}
 
       {!isFutureDay && (
         <Link

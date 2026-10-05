@@ -3,6 +3,7 @@ import { goodMarkerLabels, markerLabels } from '../lib/constants'
 import {
   fetchAllIngredientProfiles,
   fodmapTypeLabels,
+  isHealthyFatIngredient,
   updateIngredientProfile,
   type IngredientProfileRow,
 } from '../lib/ingredientProfiles'
@@ -13,8 +14,9 @@ type GoodMarkerKey = keyof typeof goodMarkerLabels
 type FodmapTypeKey = keyof typeof fodmapTypeLabels
 
 // Zubereitungs-Marker gehören nicht zu einer Zutat (siehe analyze-meal), daher hier nicht wählbar.
+// "fettreich" ist kein Zutaten-Profil-Marker, sondern wird pro Mahlzeit aus Menge/Zubereitung berechnet.
 const ingredientMarkerKeys = (Object.keys(markerLabels) as MarkerKey[]).filter(
-  (k) => k !== 'fettig_frittiert' && k !== 'scharf',
+  (k) => k !== 'fettreich' && k !== 'scharf',
 )
 // ausreichend_getrunken läuft über das Wassertracking, nicht über Zutaten.
 const ingredientGoodMarkerKeys = (Object.keys(goodMarkerLabels) as GoodMarkerKey[]).filter(
@@ -111,15 +113,23 @@ export function IngredientsSheet({ open, onClose }: { open: boolean; onClose: ()
             <div>
               <p className="text-sm font-medium text-text">Gut für dich</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                {ingredientGoodMarkerKeys.map((key) => (
-                  <ToggleChip
-                    key={key}
-                    label={goodMarkerLabels[key]}
-                    active={selected.good_markers.includes(key)}
-                    onClick={() => toggleGoodMarker(key)}
-                  />
-                ))}
+                {ingredientGoodMarkerKeys
+                  .filter((key) => key !== 'gesunde_fette' || isHealthyFatIngredient(selected.name))
+                  .map((key) => (
+                    <ToggleChip
+                      key={key}
+                      label={goodMarkerLabels[key]}
+                      active={selected.good_markers.includes(key)}
+                      onClick={() => toggleGoodMarker(key)}
+                    />
+                  ))}
               </div>
+              {!isHealthyFatIngredient(selected.name) && (
+                <p className="mt-1 text-xs text-text-tertiary">
+                  „Gesunde Fette" gilt nur für eine feste Liste (Öle, Nüsse, Samen, Avocado, fetter Fisch) und ist
+                  hier daher nicht wählbar.
+                </p>
+              )}
             </div>
             {selected.markers.includes('fodmap_hoch') && (
               <div>

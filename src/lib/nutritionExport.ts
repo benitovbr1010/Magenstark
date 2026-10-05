@@ -5,6 +5,7 @@ import type { Database } from './database.types'
 import { formatGermanDate, formatGermanTime, toDateOnly } from './datetime'
 import { computeMealRhythm, computeSleepDuration, type MealRhythmStats, type SleepDurationStats } from './mealRhythm'
 import { fetchProfile } from './profile'
+import { fetchSleepLogs } from './sleep'
 import { supabase } from './supabaseClient'
 import { fetchWaterLogs, totalMl, type WaterLogRow } from './water'
 
@@ -85,7 +86,10 @@ export async function fetchNutritionExportData(userId: string, from: Date, to: D
   const fromIso = from.toISOString()
   const toIso = to.toISOString()
 
-  const [profile, bowelRes, wellbeingRes, mealsRes, dayClosingsRes, waterRows] = await Promise.all([
+  const nightFrom = new Date(from.getTime() - 24 * 60 * 60 * 1000)
+  const nightTo = new Date(to.getTime() - 24 * 60 * 60 * 1000)
+
+  const [profile, bowelRes, wellbeingRes, mealsRes, dayClosingsRes, waterRows, sleepLogRows] = await Promise.all([
     fetchProfile(userId),
     supabase
       .from('bowel_movements')
@@ -102,6 +106,7 @@ export async function fetchNutritionExportData(userId: string, from: Date, to: D
       .gte('date', toDateOnly(from))
       .lte('date', toDateOnly(to)),
     fetchWaterLogs(userId, from, to),
+    fetchSleepLogs(userId, nightFrom, nightTo),
   ])
 
   const bowelRows = bowelRes.data ?? []
@@ -120,6 +125,8 @@ export async function fetchNutritionExportData(userId: string, from: Date, to: D
     const dayWellbeing = wellbeingRows.filter((r) => toDateOnly(new Date(r.occurred_at)) === dateStr)
     const dayWater = waterRows.filter((w) => toDateOnly(new Date(w.drunk_at)) === dateStr)
     const dayClosing = dayClosingRows.find((d) => d.date === dateStr) ?? null
+    const nightOfStr = toDateOnly(new Date(date.getTime() - 24 * 60 * 60 * 1000))
+    const sleepLog = sleepLogRows.find((s) => s.night_of === nightOfStr) ?? null
 
     const place =
       dayMeals.find((m) => m.place)?.place ??
@@ -160,7 +167,7 @@ export async function fetchNutritionExportData(userId: string, from: Date, to: D
       bowelMovements: dayBowel.map((r) => ({ time: formatGermanTime(new Date(r.occurred_at)), bristol: r.bristol })),
       symptomPeaks,
       stress: dayClosing?.stress ?? null,
-      sleep: dayClosing?.sleep ?? null,
+      sleep: sleepLog?.quality ?? null,
       hasAnyEntry,
     }
   })
@@ -188,8 +195,8 @@ export async function fetchNutritionExportData(userId: string, from: Date, to: D
   const numberOfDays = days.length
   const avgWaterMlPerDay = totalMl(waterRows) / numberOfDays
 
-  const mealRhythm = computeMealRhythm(mealRows, dayClosingRows)
-  const sleep = computeSleepDuration(dayClosingRows)
+  const mealRhythm = computeMealRhythm(mealRows, sleepLogRows)
+  const sleep = computeSleepDuration(sleepLogRows)
 
   const bristolCounts = [1, 2, 3, 4, 5, 6, 7].map((value) => bowelRows.filter((row) => row.bristol === value).length)
 

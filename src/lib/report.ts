@@ -2,6 +2,7 @@ import { flagLabels, symptomLabels } from './constants'
 import { toDateOnly } from './datetime'
 import { computeMealRhythm, computeSleepDuration } from './mealRhythm'
 import type { Profile } from './profile'
+import { fetchSleepLogs } from './sleep'
 import { supabase } from './supabaseClient'
 import { fetchWaterLogs, totalMl } from './water'
 
@@ -44,26 +45,28 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
   const dateFrom = toDateOnly(from)
   const dateTo = toDateOnly(to)
 
-  const [profileRes, bowelRes, wellbeingRes, mealsRes, dayClosingsRes, documentsRes, questionsRes, waterRows] = await Promise.all([
-    supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
-    supabase
-      .from('bowel_movements')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('occurred_at', fromIso)
-      .lte('occurred_at', toIso),
-    supabase.from('wellbeing').select('*').eq('user_id', userId).gte('occurred_at', fromIso).lte('occurred_at', toIso),
-    supabase.from('meals').select('*').eq('user_id', userId).gte('eaten_at', fromIso).lte('eaten_at', toIso),
-    supabase.from('day_closings').select('*').eq('user_id', userId).gte('date', dateFrom).lte('date', dateTo),
-    supabase
-      .from('documents')
-      .select('title, doc_date, analysis')
-      .eq('user_id', userId)
-      .order('doc_date', { ascending: false })
-      .limit(5),
-    supabase.from('doctor_questions').select('text').eq('user_id', userId).eq('saved', true),
-    fetchWaterLogs(userId, from, to),
-  ])
+  const [profileRes, bowelRes, wellbeingRes, mealsRes, dayClosingsRes, documentsRes, questionsRes, waterRows, sleepLogRows] =
+    await Promise.all([
+      supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
+      supabase
+        .from('bowel_movements')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('occurred_at', fromIso)
+        .lte('occurred_at', toIso),
+      supabase.from('wellbeing').select('*').eq('user_id', userId).gte('occurred_at', fromIso).lte('occurred_at', toIso),
+      supabase.from('meals').select('*').eq('user_id', userId).gte('eaten_at', fromIso).lte('eaten_at', toIso),
+      supabase.from('day_closings').select('*').eq('user_id', userId).gte('date', dateFrom).lte('date', dateTo),
+      supabase
+        .from('documents')
+        .select('title, doc_date, analysis')
+        .eq('user_id', userId)
+        .order('doc_date', { ascending: false })
+        .limit(5),
+      supabase.from('doctor_questions').select('text').eq('user_id', userId).eq('saved', true),
+      fetchWaterLogs(userId, from, to),
+      fetchSleepLogs(userId, from, to),
+    ])
 
   const bowelRows = bowelRes.data ?? []
   const wellbeingRows = wellbeingRes.data ?? []
@@ -129,16 +132,15 @@ export async function fetchReportData(userId: string, from: Date, to: Date): Pro
   const avgStress = dayClosingRows.length
     ? Math.round((dayClosingRows.reduce((sum, row) => sum + row.stress, 0) / dayClosingRows.length) * 10) / 10
     : null
-  const avgSleep = dayClosingRows.length
-    ? Math.round((dayClosingRows.reduce((sum, row) => sum + row.sleep, 0) / dayClosingRows.length) * 10) / 10
-    : null
+  const sleepDurationStats = computeSleepDuration(sleepLogRows)
+  const avgSleep = sleepDurationStats.avgQuality
 
-  const rhythm = computeMealRhythm(mealRows, dayClosingRows)
+  const rhythm = computeMealRhythm(mealRows, sleepLogRows)
   const mealRhythm = rhythm.byMealType
     .filter((m) => m.count > 0)
     .map((m) => ({ label: m.label, earliest: m.earliest, latest: m.latest, regularity: m.regularity }))
   const longestMealGapHours = rhythm.longestGapHours
-  const avgSleepDurationHours = computeSleepDuration(dayClosingRows).avgDurationHours
+  const avgSleepDurationHours = sleepDurationStats.avgDurationHours
 
   const documents = (documentsRes.data ?? []).map((doc) => ({
     title: doc.title,
