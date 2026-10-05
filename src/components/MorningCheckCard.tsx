@@ -1,6 +1,5 @@
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { ToggleChip } from './ToggleChip'
 import { toDateOnly } from '../lib/datetime'
 import { fetchProfile } from '../lib/profile'
 import {
@@ -74,9 +73,9 @@ export function MorningCheckCard({
   const [editing, setEditing] = useState(variant === 'banner')
   const [wakeTime, setWakeTime] = useState('')
   const [bedTime, setBedTime] = useState('')
-  // Zeit "Ins Bett gegangen" kann vor oder nach Mitternacht liegen – steuert, ob als Basisdatum
-  // die Nacht davor (nightOf) oder der Aufwach-Tag selbst (targetDate) verwendet wird.
-  const [bedOnWakeDay, setBedOnWakeDay] = useState(false)
+  // Datum für "Ins Bett gegangen" frei einstellbar (z.B. bei Schlafenszeiten nach Mitternacht oder
+  // beim nachträglichen Erfassen), damit die Schlafdauer korrekt berechnet wird.
+  const [bedDate, setBedDate] = useState('')
   const [quality, setQuality] = useState<1 | 2 | 3 | 4 | 5>(3)
   const [offsetMinutes, setOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
   const [saving, setSaving] = useState(false)
@@ -84,7 +83,7 @@ export function MorningCheckCard({
   function resetFromLog(sleepLog: SleepLogRow | null) {
     setWakeTime(sleepLog?.woke_at ? timeInputValue(sleepLog.woke_at) : isCurrentMorning ? nowTimeInput() : '')
     setBedTime(sleepLog?.bed_at ? timeInputValue(sleepLog.bed_at) : '')
-    setBedOnWakeDay(false)
+    setBedDate(sleepLog?.bed_at ? toDateOnly(new Date(sleepLog.bed_at)) : toDateOnly(nightOf))
     setQuality((sleepLog?.quality as 1 | 2 | 3 | 4 | 5) ?? 3)
   }
 
@@ -107,7 +106,7 @@ export function MorningCheckCard({
     setEditing(false)
   }
 
-  const bedBaseDate = bedOnWakeDay ? targetDate : nightOf
+  const bedBaseDate = bedDate ? new Date(`${bedDate}T00:00:00`) : nightOf
   const bedIso = bedTime ? buildTimestamp(bedBaseDate, bedTime) : log?.bed_at ?? null
   const wakeIso = wakeTime ? buildTimestamp(targetDate, wakeTime) : null
   const durationMinutes = bedIso && wakeIso ? sleepDurationMinutes({ bed_at: bedIso, woke_at: wakeIso }) : null
@@ -170,22 +169,22 @@ export function MorningCheckCard({
 
       {!log?.bed_at && (
         <div className="mt-3">
-          <label className="block">
-            <span className="text-xs text-text-tertiary">Ins Bett gegangen</span>
+          <span className="text-xs text-text-tertiary">Ins Bett gegangen</span>
+          <div className="mt-1 flex gap-2">
+            <input
+              type="date"
+              value={bedDate}
+              onChange={(e) => setBedDate(e.target.value)}
+              aria-label="Datum"
+              className="flex-1 rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
+            />
             <input
               type="time"
               value={bedTime}
               onChange={(e) => setBedTime(e.target.value)}
-              className="mt-1 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
+              aria-label="Uhrzeit"
+              className="w-28 rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
             />
-          </label>
-          <div className="mt-2 flex gap-2">
-            <ToggleChip
-              label={`Abend davor (${nightOf.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })})`}
-              active={!bedOnWakeDay}
-              onClick={() => setBedOnWakeDay(false)}
-            />
-            <ToggleChip label="Nach Mitternacht" active={bedOnWakeDay} onClick={() => setBedOnWakeDay(true)} />
           </div>
         </div>
       )}
