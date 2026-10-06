@@ -416,6 +416,9 @@ export type Database = {
       }
       profiles: {
         Row: {
+          complaint_bristol_min: number
+          complaint_symptom_min: number
+          complaint_window_hours: number
           created_at: string
           id: string
           medications: string | null
@@ -426,6 +429,9 @@ export type Database = {
           theme_preference: string | null
         }
         Insert: {
+          complaint_bristol_min?: number
+          complaint_symptom_min?: number
+          complaint_window_hours?: number
           created_at?: string
           id: string
           medications?: string | null
@@ -436,6 +442,9 @@ export type Database = {
           theme_preference?: string | null
         }
         Update: {
+          complaint_bristol_min?: number
+          complaint_symptom_min?: number
+          complaint_window_hours?: number
           created_at?: string
           id?: string
           medications?: string | null

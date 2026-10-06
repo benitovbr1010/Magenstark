@@ -12,7 +12,8 @@ import { stepStatusLabels, themeModeLabels } from '../lib/constants'
 import type { Database } from '../lib/database.types'
 import { minutesToTimeInput, timeInputToMinutes } from '../lib/datetime'
 import { exportAsCsv, exportAsJson, fetchAllUserData } from '../lib/exportData'
-import { fetchProfile, updateMorningCheckAfterMinutes, updateSleepOffsetMinutes } from '../lib/profile'
+import { fetchProfile, updateComplaintThresholds, updateMorningCheckAfterMinutes, updateSleepOffsetMinutes } from '../lib/profile'
+import { DEFAULT_COMPLAINT_THRESHOLDS } from '../lib/complaints'
 import { fetchSavedMeals, type SavedMealRow } from '../lib/savedMeals'
 import { DEFAULT_SLEEP_OFFSET_MINUTES } from '../lib/sleep'
 import { supabase } from '../lib/supabaseClient'
@@ -42,6 +43,9 @@ export function MyWay() {
   const [exportSheetOpen, setExportSheetOpen] = useState(false)
   const [sleepOffsetMinutes, setSleepOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
   const [morningCheckAfterMinutes, setMorningCheckAfterMinutes] = useState(240)
+  const [complaintSymptomMin, setComplaintSymptomMin] = useState(DEFAULT_COMPLAINT_THRESHOLDS.symptomMin)
+  const [complaintBristolMin, setComplaintBristolMin] = useState(DEFAULT_COMPLAINT_THRESHOLDS.bristolMin)
+  const [complaintWindowHours, setComplaintWindowHours] = useState(DEFAULT_COMPLAINT_THRESHOLDS.windowHours)
 
   function reloadSavedMeals() {
     if (!session) return
@@ -55,6 +59,9 @@ export function MyWay() {
     fetchProfile(session.user.id).then((profile) => {
       setSleepOffsetMinutes(profile?.sleep_offset_minutes ?? DEFAULT_SLEEP_OFFSET_MINUTES)
       setMorningCheckAfterMinutes(profile?.morning_check_after_minutes ?? 240)
+      setComplaintSymptomMin(profile?.complaint_symptom_min ?? DEFAULT_COMPLAINT_THRESHOLDS.symptomMin)
+      setComplaintBristolMin(profile?.complaint_bristol_min ?? DEFAULT_COMPLAINT_THRESHOLDS.bristolMin)
+      setComplaintWindowHours(profile?.complaint_window_hours ?? DEFAULT_COMPLAINT_THRESHOLDS.windowHours)
     })
   }, [session])
 
@@ -70,6 +77,27 @@ export function MyWay() {
     const minutes = timeInputToMinutes(timeStr)
     setMorningCheckAfterMinutes(minutes)
     updateMorningCheckAfterMinutes(session.user.id, minutes)
+  }
+
+  function handleComplaintSymptomMinChange(value: number) {
+    if (!session) return
+    const clamped = Math.max(1, Math.min(10, value))
+    setComplaintSymptomMin(clamped)
+    updateComplaintThresholds(session.user.id, { complaint_symptom_min: clamped })
+  }
+
+  function handleComplaintBristolMinChange(value: number) {
+    if (!session) return
+    const clamped = Math.max(4, Math.min(7, value))
+    setComplaintBristolMin(clamped)
+    updateComplaintThresholds(session.user.id, { complaint_bristol_min: clamped })
+  }
+
+  function handleComplaintWindowHoursChange(value: number) {
+    if (!session) return
+    const clamped = Math.max(2, Math.min(12, value))
+    setComplaintWindowHours(clamped)
+    updateComplaintThresholds(session.user.id, { complaint_window_hours: clamped })
   }
 
   async function handleExport(format: 'json' | 'csv') {
@@ -304,6 +332,77 @@ export function MyWay() {
             onChange={(e) => handleMorningCheckAfterChange(e.target.value)}
             className="mt-3 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
           />
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-sm font-medium text-text">Wann gilt ein Eintrag als Beschwerde?</p>
+          <p className="mt-1 text-xs text-text-tertiary">
+            Steuert, ab wann Einträge in der Wochenübersicht als Beschwerde gezählt werden (z. B. bei „Mögliche
+            Zusammenhänge" und „Schlimmste Momente").
+          </p>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-xs text-text-secondary">Befinden-Werte ab</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => handleComplaintSymptomMinChange(complaintSymptomMin - 1)}
+                className="h-8 w-8 rounded-full border border-border text-text-secondary"
+              >
+                −
+              </button>
+              <span className="w-12 text-center text-sm font-medium text-text">{complaintSymptomMin}/10</span>
+              <button
+                type="button"
+                onClick={() => handleComplaintSymptomMinChange(complaintSymptomMin + 1)}
+                className="h-8 w-8 rounded-full border border-border text-text-secondary"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-xs text-text-secondary">Bristol ab</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => handleComplaintBristolMinChange(complaintBristolMin - 1)}
+                className="h-8 w-8 rounded-full border border-border text-text-secondary"
+              >
+                −
+              </button>
+              <span className="w-12 text-center text-sm font-medium text-text">{complaintBristolMin}</span>
+              <button
+                type="button"
+                onClick={() => handleComplaintBristolMinChange(complaintBristolMin + 1)}
+                className="h-8 w-8 rounded-full border border-border text-text-secondary"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-xs text-text-secondary">Reaktionsfenster nach Mahlzeit bis zu</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => handleComplaintWindowHoursChange(complaintWindowHours - 1)}
+                className="h-8 w-8 rounded-full border border-border text-text-secondary"
+              >
+                −
+              </button>
+              <span className="w-12 text-center text-sm font-medium text-text">{complaintWindowHours}h</span>
+              <button
+                type="button"
+                onClick={() => handleComplaintWindowHoursChange(complaintWindowHours + 1)}
+                className="h-8 w-8 rounded-full border border-border text-text-secondary"
+              >
+                +
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-4">

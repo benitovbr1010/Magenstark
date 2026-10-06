@@ -141,8 +141,11 @@ const symptomPhrases: Record<keyof typeof symptomLabels, Record<'leicht' | 'mitt
   heartburn: { leicht: 'leichtes Sodbrennen', mittel: 'mittleres Sodbrennen', stark: 'starkes Sodbrennen' },
 }
 
-export function describeStrongestSymptom(values: Record<keyof typeof symptomLabels, number>): string {
-  const entries = Object.entries(values) as [keyof typeof symptomLabels, number][]
+export function describeStrongestSymptom(
+  values: Record<keyof typeof symptomLabels, number>,
+  keys: (keyof typeof symptomLabels)[] = Object.keys(symptomLabels) as (keyof typeof symptomLabels)[],
+): string {
+  const entries = keys.map((key) => [key, values[key]] as const)
   const [key, value] = entries.reduce((max, entry) => (entry[1] > max[1] ? entry : max))
   if (value <= 0) return 'Keine Beschwerden'
   const severity = value <= 3 ? 'leicht' : value <= 6 ? 'mittel' : 'stark'
