@@ -272,7 +272,14 @@ export type WorstMoment = {
   sleepQuality: number | null
 }
 
-export type WorstMomentMarkerSummary = { label: string; nearCount: number; totalMoments: number; overallSharePercent: number }
+export type WorstMomentMarkerSummary = {
+  label: string
+  nearCount: number
+  totalMoments: number
+  nearRatePercent: number
+  overallSharePercent: number
+  diffPercentPoints: number
+}
 
 export type PeriodInsights = {
   periodDays: number | null
@@ -288,6 +295,11 @@ export type PeriodInsights = {
   water: WaterStats
   worstMoments: WorstMoment[]
   worstMomentsSummary: WorstMomentMarkerSummary[]
+  /** true, wenn für die Zutaten-Zusammenfassung zu wenige Mahlzeiten im Zeitraum erfasst sind (< PERIOD_MIN_CASES). */
+  worstMomentsSummaryInsufficientData: boolean
+  /** Hinweis, falls ein Großteil der Toilettengänge im Zeitraum ohnehin als "signifikant" gilt –
+   * dann sind die "schlimmsten Momente" eher das übliche Muster als Ausreißer. */
+  worstMomentsBaselineNote: string | null
 }
 
 function hourOfDay(iso: string): number {
@@ -823,16 +835,35 @@ export async function fetchPeriodInsights(
     for (const mk of present) markerNearCount.set(mk, (markerNearCount.get(mk) ?? 0) + 1)
   }
   const totalMealsInPeriod = mealRows.length
-  const worstMomentsSummary: WorstMomentMarkerSummary[] = Array.from(markerNearCount.entries())
-    .map(([key, nearCount]) => ({
-      label: markerLabels[key],
-      nearCount,
-      totalMoments,
-      overallSharePercent: totalMealsInPeriod ? Math.round((mealRows.filter((m) => m.markers.includes(key)).length / totalMealsInPeriod) * 100) : 0,
-    }))
-    .filter((s) => s.nearCount >= 1)
-    .sort((a, b) => b.nearCount / b.totalMoments - a.nearCount / a.totalMoments || b.nearCount - a.nearCount)
-    .slice(0, 3)
+  // Bei zu wenigen Mahlzeiten ODER zu wenigen schlimmen Momenten im Zeitraum ist jeder Prozentsatz-Vergleich
+  // unzuverlässig (gleiche Mindestfallzahl wie bei "Mögliche Zusammenhänge") – dann lieber gar keine Zutat
+  // hervorheben, statt aus 1-2 Ereignissen einen Zusammenhang zu suggerieren.
+  const worstMomentsSummaryInsufficientData = totalMealsInPeriod < PERIOD_MIN_CASES || totalMoments < PERIOD_MIN_CASES
+  // Nur Zutaten/Marker zeigen, die vor den schlimmsten Momenten deutlich häufiger vorkamen als in allen
+  // Mahlzeiten sonst (gleiche 20pp-Schwelle wie bei "Mögliche Zusammenhänge") – sonst wirkt es wie ein
+  // Zusammenhang, obwohl die Zutat einfach generell oft vorkommt.
+  const worstMomentsSummary: WorstMomentMarkerSummary[] = worstMomentsSummaryInsufficientData
+    ? []
+    : Array.from(markerNearCount.entries())
+        .map(([key, nearCount]) => {
+          const nearRatePercent = totalMoments ? Math.round((nearCount / totalMoments) * 100) : 0
+          const overallSharePercent = totalMealsInPeriod
+            ? Math.round((mealRows.filter((m) => m.markers.includes(key)).length / totalMealsInPeriod) * 100)
+            : 0
+          return { label: markerLabels[key], nearCount, totalMoments, nearRatePercent, overallSharePercent, diffPercentPoints: nearRatePercent - overallSharePercent }
+        })
+        .filter((s) => s.diffPercentPoints >= MIN_DIFF_PERCENT_POINTS)
+        .sort((a, b) => b.diffPercentPoints - a.diffPercentPoints)
+        .slice(0, 3)
+
+  // Falls ein Großteil der Toilettengänge im Zeitraum ohnehin als "signifikant" gilt, sind die oben gezeigten
+  // Momente eher das übliche Muster als einzelne Ausreißer – das sollte hier klar benannt werden.
+  const significantBowelCount = bowelRows.filter((r) => isSignificantBowel(r, thresholds)).length
+  const significantBowelShare = bowelRows.length ? significantBowelCount / bowelRows.length : 0
+  const worstMomentsBaselineNote =
+    bowelRows.length >= 3 && significantBowelShare >= 0.5
+      ? `${Math.round(significantBowelShare * 100)}% deiner Toilettengänge in diesem Zeitraum gelten nach den aktuellen Schwellen als auffällig – das könnte eher dein übliches Muster sein als einzelne besonders schlimme Tage. Die Schwellen lassen sich in „Mein Weg" anpassen.`
+      : null
 
   return {
     periodDays: windowDays,
@@ -860,5 +891,7 @@ export async function fetchPeriodInsights(
     },
     worstMoments,
     worstMomentsSummary,
+    worstMomentsSummaryInsufficientData,
+    worstMomentsBaselineNote,
   }
 }

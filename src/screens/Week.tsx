@@ -60,7 +60,7 @@ export function Week() {
   const [exportOpen, setExportOpen] = useState(false)
   const [insights, setInsights] = useState<{ auffaellig: string[]; ideas: string[] } | null>(null)
   const [insightsLoading, setInsightsLoading] = useState(false)
-  const [periodDays, setPeriodDays] = useState<number | null>(28)
+  const [periodDays, setPeriodDays] = useState<number | null>(THIS_WEEK)
   const [periodInsights, setPeriodInsights] = useState<PeriodInsights | null>(null)
   const [periodLoading, setPeriodLoading] = useState(true)
   const [thresholds, setThresholds] = useState<ComplaintThresholds>(DEFAULT_COMPLAINT_THRESHOLDS)
@@ -225,6 +225,17 @@ export function Week() {
         </button>
       </div>
 
+      <div className="mt-4 flex flex-wrap gap-2">
+        {periodOptions.map((opt) => (
+          <ToggleChip
+            key={opt.label}
+            label={opt.label}
+            active={periodDays === opt.days}
+            onClick={() => setPeriodDays(opt.days)}
+          />
+        ))}
+      </div>
+
       {loading ? null : (
         <div className="mt-6 flex flex-col gap-4">
           {!periodLoading && hasWorstMoments && (
@@ -256,16 +267,27 @@ export function Week() {
                   </div>
                 ))}
               </div>
-              {periodInsights!.worstMomentsSummary.length > 0 && (
-                <div className="mt-3 flex flex-col gap-1 border-t border-border pt-3">
-                  {periodInsights!.worstMomentsSummary.map((s) => (
+              <div className="mt-3 flex flex-col gap-1 border-t border-border pt-3">
+                {periodInsights!.worstMomentsSummaryInsufficientData ? (
+                  <p className="text-xs text-text-tertiary">
+                    Noch zu wenige erfasste Mahlzeiten in diesem Zeitraum, um einen Zusammenhang mit dem Essen zu prüfen.
+                  </p>
+                ) : periodInsights!.worstMomentsSummary.length > 0 ? (
+                  periodInsights!.worstMomentsSummary.map((s) => (
                     <p key={s.label} className="text-xs text-text-secondary">
-                      {s.label}: vor {s.nearCount} von {s.totalMoments} schlimmen Momenten, sonst in {s.overallSharePercent}% der
-                      Mahlzeiten.
+                      {s.label}: vor {s.nearRatePercent}% der schlimmen Momente, sonst in {s.overallSharePercent}% aller
+                      Mahlzeiten – auffällig häufiger.
                     </p>
-                  ))}
-                </div>
-              )}
+                  ))
+                ) : (
+                  <p className="text-xs text-text-tertiary">
+                    Keine Zutat sticht bei diesen Momenten besonders heraus – kommt unabhängig vom Essen ähnlich oft vor.
+                  </p>
+                )}
+                {periodInsights!.worstMomentsBaselineNote && (
+                  <p className="mt-1 text-xs text-text-tertiary">{periodInsights!.worstMomentsBaselineNote}</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -284,17 +306,6 @@ export function Week() {
               ))}
             </div>
             {bowelRows.length > 0 && <p className="mt-2 text-xs text-text-tertiary">Basierend auf {bowelDaysWithData} Tagen</p>}
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {periodOptions.map((opt) => (
-              <ToggleChip
-                key={opt.label}
-                label={opt.label}
-                active={periodDays === opt.days}
-                onClick={() => setPeriodDays(opt.days)}
-              />
-            ))}
           </div>
 
           {(periodLoading || hasWellbeingData) && (
