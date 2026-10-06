@@ -22,7 +22,7 @@ const WINDOW_DAYS = 42
 const MIN_DAYS_WITH_DATA = 21
 const MIN_GROUP_SIZE = 3
 /** Mindestanzahl Fälle je Vergleichsgruppe für die "Mögliche Zusammenhänge"-Karte (SPEC-Vorgabe: min. 5). */
-const PERIOD_MIN_CASES = 5
+export const PERIOD_MIN_CASES = 5
 
 export type WeekInsightsStats = {
   daysWithData: number
@@ -224,6 +224,18 @@ export type LateEatingSleep = {
 
 export type MoodPoint = { date: string; avgMood: number | null; isStressDay: boolean }
 
+export type WaterTimeBucket = { label: string; percent: number }
+
+export type WaterStats = {
+  avgMlPerDay: number
+  avgGlassesPerDay: number
+  avgWakeToFirstGlassMinutes: number | null
+  wakeToFirstGlassCases: number
+  firstGlassBeforeFirstMealPercent: number | null
+  firstGlassBeforeFirstMealCases: number
+  timeOfDayDistribution: WaterTimeBucket[]
+}
+
 export type PeriodInsights = {
   periodDays: number | null
   daysWithData: number
@@ -232,7 +244,11 @@ export type PeriodInsights = {
   lateEating: LateEatingSleep | null
   connections: Connection[]
   wellbeing: { avgMood: number | null; series: MoodPoint[] }
-  water: { avgMlPerDay: number; avgGlassesPerDay: number }
+  water: WaterStats
+}
+
+function hourOfDay(iso: string): number {
+  return new Date(iso).getHours()
 }
 
 /** Essensrhythmus/Schlaf/Zusammenhänge für einen wählbaren Zeitraum (1/2/4 Wochen oder alles, SPEC §6.3 Erweiterung).
@@ -440,6 +456,95 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
     })
   }
 
+  // Trinken zur Mahlzeit (±30 Min.) vs. Beschwerden 2–24h danach.
+  let nearMealCount = 0
+  let nearMealSymptomCount = 0
+  let notNearMealCount = 0
+  let notNearMealSymptomCount = 0
+  for (const meal of mealRows) {
+    const mealTime = new Date(meal.eaten_at).getTime()
+    const hasNearbyWater = waterRows.some((w) => Math.abs(new Date(w.drunk_at).getTime() - mealTime) <= 30 * 60000)
+    const windowStart = mealTime + 2 * 3600000
+    const windowEnd = mealTime + 24 * 3600000
+    const followups = wellbeingRows.filter((w) => {
+      const t = new Date(w.occurred_at).getTime()
+      return t >= windowStart && t <= windowEnd
+    })
+    if (followups.length === 0) continue
+    const symptomatic = followups.some(hasWellbeingSymptom)
+    if (hasNearbyWater) {
+      nearMealCount++
+      if (symptomatic) nearMealSymptomCount++
+    } else {
+      notNearMealCount++
+      if (symptomatic) notNearMealSymptomCount++
+    }
+  }
+  if (nearMealCount >= PERIOD_MIN_CASES && notNearMealCount >= PERIOD_MIN_CASES) {
+    connections.push({
+      type: 'ratio',
+      label: 'Trinken zur Mahlzeit (±30 Min.)',
+      withCount: nearMealCount,
+      withSymptomCount: nearMealSymptomCount,
+      withoutCount: notNearMealCount,
+      withoutSymptomCount: notNearMealSymptomCount,
+    })
+  }
+
+  // Trinken in den 3h vor einem Befinden-Eintrag vs. Beschwerdestärke dieses Eintrags.
+  const lowWaterBeforeScores: number[] = []
+  const enoughWaterBeforeScores: number[] = []
+  for (const w of wellbeingRows) {
+    const t = new Date(w.occurred_at).getTime()
+    const mlBefore = waterRows
+      .filter((wl) => {
+        const wt = new Date(wl.drunk_at).getTime()
+        return wt <= t && wt >= t - 3 * 3600000
+      })
+      .reduce((s, wl) => s + wl.amount_ml, 0)
+    const score = symptomKeys.reduce((acc, key) => acc + w[key], 0) / symptomKeys.length
+    if (mlBefore < 250) lowWaterBeforeScores.push(score)
+    else enoughWaterBeforeScores.push(score)
+  }
+  if (lowWaterBeforeScores.length >= PERIOD_MIN_CASES && enoughWaterBeforeScores.length >= PERIOD_MIN_CASES) {
+    connections.push({
+      type: 'average',
+      label: 'Trinken vor Befinden-Eintrag',
+      groupALabel: 'Wenig getrunken (<250 ml, letzte 3h)',
+      groupBLabel: 'Mind. ein Glas getrunken',
+      groupACount: lowWaterBeforeScores.length,
+      groupBCount: enoughWaterBeforeScores.length,
+      groupAAvg: round1(avg(lowWaterBeforeScores)),
+      groupBAvg: round1(avg(enoughWaterBeforeScores)),
+      unit: 'Symptom-Wert (0–10)',
+    })
+  }
+
+  // Trinkmenge eines Tages vs. Stuhl am nächsten Tag.
+  const lowWaterBristolNextDay: number[] = []
+  const enoughWaterBristolNextDay: number[] = []
+  for (const [day, ml] of waterByDay) {
+    const nextDay = new Date(`${day}T12:00:00`)
+    nextDay.setDate(nextDay.getDate() + 1)
+    const b = bristolByDay.get(toDateOnly(nextDay))
+    if (b === undefined) continue
+    if (ml < 1500) lowWaterBristolNextDay.push(b)
+    else enoughWaterBristolNextDay.push(b)
+  }
+  if (lowWaterBristolNextDay.length >= PERIOD_MIN_CASES && enoughWaterBristolNextDay.length >= PERIOD_MIN_CASES) {
+    connections.push({
+      type: 'average',
+      label: 'Trinkmenge & Stuhl am nächsten Tag',
+      groupALabel: 'Wenig getrunken (<1,5 l)',
+      groupBLabel: 'Ausreichend getrunken',
+      groupACount: lowWaterBristolNextDay.length,
+      groupBCount: enoughWaterBristolNextDay.length,
+      groupAAvg: round1(avg(lowWaterBristolNextDay)),
+      groupBAvg: round1(avg(enoughWaterBristolNextDay)),
+      unit: 'Bristol-Wert (1–7)',
+    })
+  }
+
   // Schlafqualität der Nacht VOR einem Tag vs. Beschwerden an diesem Tag.
   const poorSleepScores: number[] = []
   const goodSleepScores: number[] = []
@@ -541,6 +646,51 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
       ? Math.max(1, Math.round((to.getTime() - new Date(waterRows[0].drunk_at).getTime()) / 86400000) + 1)
       : 1)
 
+  // Aufwachen -> erstes Glas Wasser.
+  const wakeToFirstGlassGaps: number[] = []
+  for (const log of sleepLogRows) {
+    if (!log.woke_at) continue
+    const wokeTime = new Date(log.woke_at).getTime()
+    const wokeDay = toDateOnly(new Date(log.woke_at))
+    const firstGlassAfterWaking = waterRows
+      .filter((w) => toDateOnly(new Date(w.drunk_at)) === wokeDay && new Date(w.drunk_at).getTime() >= wokeTime)
+      .sort((a, b) => new Date(a.drunk_at).getTime() - new Date(b.drunk_at).getTime())[0]
+    if (!firstGlassAfterWaking) continue
+    const gapMinutes = (new Date(firstGlassAfterWaking.drunk_at).getTime() - wokeTime) / 60000
+    if (gapMinutes >= 0 && gapMinutes <= 6 * 60) wakeToFirstGlassGaps.push(gapMinutes)
+  }
+
+  // Erstes Glas Wasser vs. erste Mahlzeit desselben Tages.
+  let firstGlassBeforeMealCases = 0
+  let firstGlassBeforeMeal = 0
+  for (const day of daysWithData) {
+    const dayWater = waterRows.filter((w) => toDateOnly(new Date(w.drunk_at)) === day)
+    const dayMeals = dayMealMap.get(day) ?? []
+    if (dayWater.length === 0 || dayMeals.length === 0) continue
+    const firstWaterTime = Math.min(...dayWater.map((w) => new Date(w.drunk_at).getTime()))
+    const firstMealTime = Math.min(...dayMeals.map((m) => new Date(m.eaten_at).getTime()))
+    firstGlassBeforeMealCases++
+    if (firstWaterTime < firstMealTime) firstGlassBeforeMeal++
+  }
+
+  // Tageszeit-Verteilung der Gläser.
+  const timeBuckets: { label: string; test: (h: number) => boolean }[] = [
+    { label: 'Morgens (5–11 Uhr)', test: (h) => h >= 5 && h < 11 },
+    { label: 'Mittags (11–15 Uhr)', test: (h) => h >= 11 && h < 15 },
+    { label: 'Nachmittags (15–18 Uhr)', test: (h) => h >= 15 && h < 18 },
+    { label: 'Abends (18–23 Uhr)', test: (h) => h >= 18 && h < 23 },
+    { label: 'Nachts (23–5 Uhr)', test: (h) => h >= 23 || h < 5 },
+  ]
+  const timeOfDayDistribution =
+    waterRows.length >= PERIOD_MIN_CASES
+      ? timeBuckets
+          .map((b) => ({
+            label: b.label,
+            percent: Math.round((waterRows.filter((w) => b.test(hourOfDay(w.drunk_at))).length / waterRows.length) * 100),
+          }))
+          .filter((b) => b.percent > 0)
+      : []
+
   return {
     periodDays: windowDays,
     daysWithData: daysWithData.size,
@@ -549,6 +699,18 @@ export async function fetchPeriodInsights(userId: string, windowDays: number | n
     lateEating,
     connections,
     wellbeing: { avgMood, series: moodSeries },
-    water: { avgMlPerDay: totalMl(waterRows) / waterWindowDays, avgGlassesPerDay: waterRows.length / waterWindowDays },
+    water: {
+      avgMlPerDay: totalMl(waterRows) / waterWindowDays,
+      avgGlassesPerDay: waterRows.length / waterWindowDays,
+      avgWakeToFirstGlassMinutes:
+        wakeToFirstGlassGaps.length >= PERIOD_MIN_CASES ? Math.round(avg(wakeToFirstGlassGaps)) : null,
+      wakeToFirstGlassCases: wakeToFirstGlassGaps.length,
+      firstGlassBeforeFirstMealPercent:
+        firstGlassBeforeMealCases >= PERIOD_MIN_CASES
+          ? Math.round((firstGlassBeforeMeal / firstGlassBeforeMealCases) * 100)
+          : null,
+      firstGlassBeforeFirstMealCases: firstGlassBeforeMealCases,
+      timeOfDayDistribution,
+    },
   }
 }

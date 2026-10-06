@@ -1,12 +1,10 @@
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { toDateOnly } from '../lib/datetime'
-import { fetchProfile } from '../lib/profile'
+import { addDays, toDateOnly } from '../lib/datetime'
 import {
-  computeFellAsleepAt,
-  DEFAULT_SLEEP_OFFSET_MINUTES,
   fetchSleepLog,
   formatDuration,
+  isPlausibleSleepDuration,
   sleepDurationMinutes,
   upsertSleepLog,
   type SleepLogRow,
@@ -51,49 +49,40 @@ function buildTimestamp(baseDate: Date, timeStr: string): string | null {
   return d.toISOString()
 }
 
+/** "Wie hast du geschlafen?"-Karte für einen Tag (targetDate = Morgen danach). Enthält NUR Schlafqualität
+ * und Weckzeit – die Bettzeit kommt ausschließlich aus dem Tagesabschluss des Vorabends (night_of). */
 export function MorningCheckCard({
   userId,
   targetDate,
-  variant,
   onDismiss,
   onSaved,
 }: {
   userId: string
   targetDate: Date
-  variant: 'banner' | 'inline'
   onDismiss?: () => void
   onSaved?: () => void
 }) {
-  const nightOf = new Date(targetDate)
-  nightOf.setDate(nightOf.getDate() - 1)
+  const nightOf = addDays(targetDate, -1)
   const isCurrentMorning = toDateOnly(targetDate) === toDateOnly(new Date())
 
   const [log, setLog] = useState<SleepLogRow | null>(null)
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(variant === 'banner')
+  const [editing, setEditing] = useState(true)
   const [wakeTime, setWakeTime] = useState('')
-  const [bedTime, setBedTime] = useState('')
-  // Datum für "Ins Bett gegangen" frei einstellbar (z.B. bei Schlafenszeiten nach Mitternacht oder
-  // beim nachträglichen Erfassen), damit die Schlafdauer korrekt berechnet wird.
-  const [bedDate, setBedDate] = useState('')
   const [quality, setQuality] = useState<1 | 2 | 3 | 4 | 5>(3)
-  const [offsetMinutes, setOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
   const [saving, setSaving] = useState(false)
 
   function resetFromLog(sleepLog: SleepLogRow | null) {
     setWakeTime(sleepLog?.woke_at ? timeInputValue(sleepLog.woke_at) : isCurrentMorning ? nowTimeInput() : '')
-    setBedTime(sleepLog?.bed_at ? timeInputValue(sleepLog.bed_at) : '')
-    setBedDate(sleepLog?.bed_at ? toDateOnly(new Date(sleepLog.bed_at)) : toDateOnly(nightOf))
     setQuality((sleepLog?.quality as 1 | 2 | 3 | 4 | 5) ?? 3)
   }
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([fetchSleepLog(userId, nightOf), fetchProfile(userId)]).then(([sleepLog, profile]) => {
+    fetchSleepLog(userId, nightOf).then((sleepLog) => {
       setLog(sleepLog)
-      setOffsetMinutes(profile?.sleep_offset_minutes ?? DEFAULT_SLEEP_OFFSET_MINUTES)
       resetFromLog(sleepLog)
-      setEditing(variant === 'banner' ? !sleepLog?.quality : false)
+      setEditing(!sleepLog?.quality)
       setLoading(false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,22 +95,20 @@ export function MorningCheckCard({
     setEditing(false)
   }
 
-  const bedBaseDate = bedDate ? new Date(`${bedDate}T00:00:00`) : nightOf
-  const bedIso = bedTime ? buildTimestamp(bedBaseDate, bedTime) : log?.bed_at ?? null
   const wakeIso = wakeTime ? buildTimestamp(targetDate, wakeTime) : null
-  const durationMinutes = bedIso && wakeIso ? sleepDurationMinutes({ bed_at: bedIso, woke_at: wakeIso }) : null
+  const durationMinutes =
+    log?.bed_at && wakeIso
+      ? sleepDurationMinutes({ bed_at: log.bed_at, fell_asleep_at: log.fell_asleep_at, woke_at: wakeIso })
+      : null
   const savedDurationMinutes = log ? sleepDurationMinutes(log) : null
+  const savedDurationImplausible = savedDurationMinutes != null && !isPlausibleSleepDuration(savedDurationMinutes)
 
   async function handleSave() {
     if (!wakeTime) return
     setSaving(true)
-    const fellAsleepIso =
-      bedIso && !log?.fell_asleep_at ? computeFellAsleepAt(new Date(bedIso), offsetMinutes).toISOString() : (log?.fell_asleep_at ?? null)
-    await upsertSleepLog(userId, nightOf, {
-      woke_at: wakeIso,
-      quality,
-      ...(bedTime ? { bed_at: bedIso, fell_asleep_at: fellAsleepIso } : {}),
-    })
+    await upsertSleepLog(userId, nightOf, { woke_at: wakeIso, quality })
+    const refreshed = await fetchSleepLog(userId, nightOf)
+    setLog(refreshed)
     setSaving(false)
     setEditing(false)
     onSaved?.()
@@ -135,32 +122,31 @@ export function MorningCheckCard({
         className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-left"
       >
         <span className="text-sm font-medium text-text">
-          {log?.quality
-            ? `Geschlafen: ${log.quality}/5${savedDurationMinutes != null ? ` · ${formatDuration(savedDurationMinutes)}` : ''}`
-            : 'Wie hast du geschlafen?'}
+          Aufgewacht {timeInputValue(log?.woke_at ?? null)} · Schlaf {log?.quality}/5
+          {savedDurationMinutes != null ? ` · ${formatDuration(savedDurationMinutes)}` : ''}
+          {savedDurationImplausible && <span className="ml-1 text-warning">· Bitte Zeiten prüfen</span>}
         </span>
         <ChevronRight size={18} className="shrink-0 text-text-tertiary" />
       </button>
     )
   }
 
-  const wrapperClass =
-    variant === 'banner'
-      ? 'mt-3 rounded-2xl bg-primary-light px-4 py-4'
-      : 'mt-4 rounded-2xl border border-border bg-card px-4 py-4'
+  const wrapperClass = !log?.quality
+    ? 'mt-4 rounded-2xl bg-primary-light px-4 py-4'
+    : 'mt-4 rounded-2xl border border-border bg-card px-4 py-4'
 
   return (
     <div className={wrapperClass}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          {variant === 'inline' && (
+          {log?.quality && (
             <button type="button" onClick={handleCancel} aria-label="Zurück" className="shrink-0 text-text-tertiary">
               <ChevronLeft size={18} />
             </button>
           )}
           <p className="text-sm font-medium text-text">Guten Morgen, wie hast du geschlafen?</p>
         </div>
-        {variant === 'banner' && onDismiss && (
+        {!log?.quality && onDismiss && (
           <button type="button" onClick={onDismiss} aria-label="Schließen" className="shrink-0 text-text-tertiary">
             <X size={16} />
           </button>
@@ -168,25 +154,9 @@ export function MorningCheckCard({
       </div>
 
       {!log?.bed_at && (
-        <div className="mt-3">
-          <span className="text-xs text-text-tertiary">Ins Bett gegangen</span>
-          <div className="mt-1 flex gap-2">
-            <input
-              type="date"
-              value={bedDate}
-              onChange={(e) => setBedDate(e.target.value)}
-              aria-label="Datum"
-              className="flex-1 rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
-            />
-            <input
-              type="time"
-              value={bedTime}
-              onChange={(e) => setBedTime(e.target.value)}
-              aria-label="Uhrzeit"
-              className="w-28 rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
-            />
-          </div>
-        </div>
+        <p className="mt-3 text-xs text-text-tertiary">
+          Bettzeit fehlt noch – trag sie im Tagesabschluss des Vorabends ein.
+        </p>
       )}
 
       <label className="mt-3 block">
@@ -207,7 +177,12 @@ export function MorningCheckCard({
         </div>
       </div>
 
-      {durationMinutes != null && <p className="mt-3 text-xs text-text-tertiary">Schlafdauer: {formatDuration(durationMinutes)}</p>}
+      {durationMinutes != null && (
+        <p className="mt-3 text-xs text-text-tertiary">
+          Schlafdauer: {formatDuration(durationMinutes)}
+          {!isPlausibleSleepDuration(durationMinutes) && <span className="ml-1 text-warning">· Bitte Zeiten prüfen</span>}
+        </p>
+      )}
 
       <button
         type="button"

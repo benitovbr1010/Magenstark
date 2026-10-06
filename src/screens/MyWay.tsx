@@ -10,8 +10,9 @@ import { UploadSheet } from '../components/UploadSheet'
 import { useAuth } from '../lib/AuthContext'
 import { stepStatusLabels, themeModeLabels } from '../lib/constants'
 import type { Database } from '../lib/database.types'
+import { minutesToTimeInput, timeInputToMinutes } from '../lib/datetime'
 import { exportAsCsv, exportAsJson, fetchAllUserData } from '../lib/exportData'
-import { fetchProfile, updateSleepOffsetMinutes } from '../lib/profile'
+import { fetchProfile, updateMorningCheckAfterMinutes, updateSleepOffsetMinutes } from '../lib/profile'
 import { fetchSavedMeals, type SavedMealRow } from '../lib/savedMeals'
 import { DEFAULT_SLEEP_OFFSET_MINUTES } from '../lib/sleep'
 import { supabase } from '../lib/supabaseClient'
@@ -40,6 +41,7 @@ export function MyWay() {
   const [ingredientsSheetOpen, setIngredientsSheetOpen] = useState(false)
   const [exportSheetOpen, setExportSheetOpen] = useState(false)
   const [sleepOffsetMinutes, setSleepOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
+  const [morningCheckAfterMinutes, setMorningCheckAfterMinutes] = useState(240)
 
   function reloadSavedMeals() {
     if (!session) return
@@ -52,6 +54,7 @@ export function MyWay() {
     if (!session) return
     fetchProfile(session.user.id).then((profile) => {
       setSleepOffsetMinutes(profile?.sleep_offset_minutes ?? DEFAULT_SLEEP_OFFSET_MINUTES)
+      setMorningCheckAfterMinutes(profile?.morning_check_after_minutes ?? 240)
     })
   }, [session])
 
@@ -60,6 +63,13 @@ export function MyWay() {
     const clamped = Math.max(0, Math.min(120, minutes))
     setSleepOffsetMinutes(clamped)
     updateSleepOffsetMinutes(session.user.id, clamped)
+  }
+
+  function handleMorningCheckAfterChange(timeStr: string) {
+    if (!session) return
+    const minutes = timeInputToMinutes(timeStr)
+    setMorningCheckAfterMinutes(minutes)
+    updateMorningCheckAfterMinutes(session.user.id, minutes)
   }
 
   async function handleExport(format: 'json' | 'csv') {
@@ -281,6 +291,19 @@ export function MyWay() {
               +
             </button>
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-sm font-medium text-text">Morgen-Check ab</p>
+          <p className="mt-1 text-xs text-text-tertiary">
+            Ab dieser Uhrzeit erscheint die „Wie hast du geschlafen?"-Karte auf „Heute" automatisch.
+          </p>
+          <input
+            type="time"
+            value={minutesToTimeInput(morningCheckAfterMinutes)}
+            onChange={(e) => handleMorningCheckAfterChange(e.target.value)}
+            className="mt-3 w-full rounded-2xl border border-border bg-card px-4 py-2 text-text outline-none focus:border-primary"
+          />
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-4">

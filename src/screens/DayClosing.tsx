@@ -4,7 +4,7 @@ import { ScreenHeader } from '../components/ScreenHeader'
 import { ToggleChip } from '../components/ToggleChip'
 import { useAuth } from '../lib/AuthContext'
 import { dayTagLabels } from '../lib/constants'
-import { formatGermanDate, toDateOnly } from '../lib/datetime'
+import { addDays, formatChipDate, formatGermanDate, toDateOnly } from '../lib/datetime'
 import { fetchProfile } from '../lib/profile'
 import { computeFellAsleepAt, DEFAULT_SLEEP_OFFSET_MINUTES, fetchSleepLog, upsertSleepLog } from '../lib/sleep'
 import { supabase } from '../lib/supabaseClient'
@@ -60,9 +60,12 @@ export function DayClosing() {
   const [tags, setTags] = useState<(keyof typeof dayTagLabels)[]>([])
   const [note, setNote] = useState('')
   const [bedtime, setBedtime] = useState('')
+  const [bedDateChoice, setBedDateChoice] = useState<'same' | 'next'>('same')
   const [sleepOffsetMinutes, setSleepOffsetMinutes] = useState(DEFAULT_SLEEP_OFFSET_MINUTES)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  const nextDay = addDays(today, 1)
 
   useEffect(() => {
     if (!session) return
@@ -77,7 +80,23 @@ export function DayClosing() {
         setTags(dc.tags as (keyof typeof dayTagLabels)[])
         setNote(dc.note ?? '')
       }
-      setBedtime(sleepLog?.bed_at ? formatTimeInput(sleepLog.bed_at) : nowTimeInput())
+      if (sleepLog?.bed_at) {
+        setBedtime(formatTimeInput(sleepLog.bed_at))
+        setBedDateChoice(toDateOnly(new Date(sleepLog.bed_at)) === toDateOnly(nextDay) ? 'next' : 'same')
+      } else {
+        // "Aktive" Schließung (heute oder kurz nach Mitternacht desselben Abends): aktuelle Uhrzeit als
+        // Default, Datum automatisch richtig vorbelegt. Vergangene Tage (nachträglich erfasst): leer/23:00.
+        const now = new Date()
+        const nowDateStr = toDateOnly(now)
+        const isActiveClosing = nowDateStr === toDateOnly(today) || nowDateStr === toDateOnly(nextDay)
+        if (isActiveClosing) {
+          setBedtime(nowTimeInput())
+          setBedDateChoice(nowDateStr === toDateOnly(nextDay) ? 'next' : 'same')
+        } else {
+          setBedtime('23:00')
+          setBedDateChoice('same')
+        }
+      }
       setSleepOffsetMinutes(profile?.sleep_offset_minutes ?? DEFAULT_SLEEP_OFFSET_MINUTES)
       setLoading(false)
     })
@@ -88,7 +107,8 @@ export function DayClosing() {
     setTags((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
   }
 
-  const bedAtIso = buildTimestamp(today, bedtime)
+  const bedBaseDate = bedDateChoice === 'next' ? nextDay : today
+  const bedAtIso = buildTimestamp(bedBaseDate, bedtime)
   const fellAsleepLabel = bedAtIso
     ? computeFellAsleepAt(new Date(bedAtIso), sleepOffsetMinutes).toTimeString().slice(0, 5)
     : null
@@ -155,6 +175,18 @@ export function DayClosing() {
 
         <div className="rounded-2xl border border-border bg-card p-4">
           <p className="text-sm font-medium text-text">Ich gehe jetzt ins Bett</p>
+          <div className="mt-2 flex gap-2">
+            <ToggleChip
+              label={formatChipDate(today)}
+              active={bedDateChoice === 'same'}
+              onClick={() => setBedDateChoice('same')}
+            />
+            <ToggleChip
+              label={formatChipDate(nextDay)}
+              active={bedDateChoice === 'next'}
+              onClick={() => setBedDateChoice('next')}
+            />
+          </div>
           <input
             type="time"
             value={bedtime}

@@ -419,6 +419,7 @@ export type Database = {
           created_at: string
           id: string
           medications: string | null
+          morning_check_after_minutes: number
           name: string | null
           sleep_offset_minutes: number
           symptoms_since: string | null
@@ -428,6 +429,7 @@ export type Database = {
           created_at?: string
           id: string
           medications?: string | null
+          morning_check_after_minutes?: number
           name?: string | null
           sleep_offset_minutes?: number
           symptoms_since?: string | null
@@ -437,6 +439,7 @@ export type Database = {
           created_at?: string
           id?: string
           medications?: string | null
+          morning_check_after_minutes?: number
           name?: string | null
           sleep_offset_minutes?: number
           symptoms_since?: string | null

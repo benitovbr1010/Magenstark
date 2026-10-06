@@ -22,6 +22,7 @@ import {
 import { fetchLatestContext, isContextExpired, type ActiveContext } from '../lib/context'
 import type { Database } from '../lib/database.types'
 import {
+  addDays,
   endOfDay,
   formatGermanDate,
   formatGermanTime,
@@ -37,6 +38,7 @@ import {
   type IngredientProfileRow,
 } from '../lib/ingredientProfiles'
 import { goodMarkerArticle, markerArticle, type KnowledgeArticle } from '../lib/knowledge'
+import { fetchProfile } from '../lib/profile'
 import { fetchSleepLog } from '../lib/sleep'
 import { supabase } from '../lib/supabaseClient'
 import { addWaterLog, fetchWaterLogs, formatLiters, removeWaterLog, totalMl, type WaterLogRow } from '../lib/water'
@@ -77,8 +79,11 @@ export function Today() {
   const [closedDates, setClosedDates] = useState<Set<string>>(new Set())
   const [infoArticle, setInfoArticle] = useState<KnowledgeArticle | null>(null)
   const [ingredientProfiles, setIngredientProfiles] = useState<Record<string, IngredientProfileRow>>({})
-  const [showMorningBanner, setShowMorningBanner] = useState(false)
   const [missedClosingNudge, setMissedClosingNudge] = useState<{ date: string } | null>(null)
+  const [morningCheckAfterMinutes, setMorningCheckAfterMinutes] = useState(240)
+  const [todaySleepQualityFilled, setTodaySleepQualityFilled] = useState(false)
+  const [morningCheckDismissed, setMorningCheckDismissed] = useState(false)
+  const [morningCheckManualOpen, setMorningCheckManualOpen] = useState(false)
 
   function reloadContext() {
     if (!session) return
@@ -111,22 +116,13 @@ export function Today() {
 
   useEffect(() => {
     if (!session) return
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = toDateOnly(yesterday)
-    if (localStorage.getItem(`morningCheckSkipped_${yesterdayStr}`)) return
-    if (new Date().getHours() >= 14) return
-    fetchSleepLog(session.user.id, yesterday).then((log) => {
-      setShowMorningBanner(!log?.quality)
+    fetchProfile(session.user.id).then((profile) => {
+      setMorningCheckAfterMinutes(profile?.morning_check_after_minutes ?? 240)
+    })
+    fetchSleepLog(session.user.id, addDays(new Date(), -1)).then((log) => {
+      setTodaySleepQualityFilled(!!log?.quality)
     })
   }, [session])
-
-  function dismissMorningBanner() {
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    localStorage.setItem(`morningCheckSkipped_${toDateOnly(yesterday)}`, '1')
-    setShowMorningBanner(false)
-  }
 
   useEffect(() => {
     if (!session) return
@@ -239,6 +235,10 @@ export function Today() {
   const captureSuffix = isToday ? '' : `?date=${toDateOnly(selectedDate)}`
   const waterCount = waterLogs.length
   const waterTotal = totalMl(waterLogs)
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes()
+  const afterMorningThreshold = nowMinutes >= morningCheckAfterMinutes
+  const showTodayMorningCheck =
+    todaySleepQualityFilled || morningCheckManualOpen || (afterMorningThreshold && !morningCheckDismissed)
 
   return (
     <div className="px-4 pt-6">
@@ -266,16 +266,6 @@ export function Today() {
             </button>
           </div>
         </div>
-      )}
-
-      {showMorningBanner && session && (
-        <MorningCheckCard
-          userId={session.user.id}
-          targetDate={new Date()}
-          variant="banner"
-          onDismiss={dismissMorningBanner}
-          onSaved={() => setShowMorningBanner(false)}
-        />
       )}
 
       <div className="mt-3">
@@ -482,7 +472,31 @@ export function Today() {
         )}
       </div>
 
-      {!isFutureDay && session && <MorningCheckCard userId={session.user.id} targetDate={selectedDate} variant="inline" />}
+      {!isFutureDay && session && (
+        isToday ? (
+          showTodayMorningCheck ? (
+            <MorningCheckCard
+              userId={session.user.id}
+              targetDate={selectedDate}
+              onDismiss={!todaySleepQualityFilled ? () => setMorningCheckDismissed(true) : undefined}
+              onSaved={() => {
+                setTodaySleepQualityFilled(true)
+                setMorningCheckManualOpen(false)
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMorningCheckManualOpen(true)}
+              className="mt-4 text-sm font-medium text-primary-text"
+            >
+              Aufgewacht?
+            </button>
+          )
+        ) : (
+          <MorningCheckCard userId={session.user.id} targetDate={selectedDate} />
+        )
+      )}
 
       {!isFutureDay && (
         <Link

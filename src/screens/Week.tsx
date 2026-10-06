@@ -299,6 +299,25 @@ export function Week() {
                 <p className="text-xs text-text-tertiary">
                   Ø pro Tag · {periodInsights.water.avgGlassesPerDay.toLocaleString('de-DE', { maximumFractionDigits: 1 })} Gläser
                 </p>
+                <div className="mt-3 flex flex-col gap-1.5">
+                  {periodInsights.water.avgWakeToFirstGlassMinutes !== null && (
+                    <p className="text-sm text-text-secondary">
+                      Aufwachen bis erstes Glas: Ø {periodInsights.water.avgWakeToFirstGlassMinutes} Min. (n=
+                      {periodInsights.water.wakeToFirstGlassCases})
+                    </p>
+                  )}
+                  {periodInsights.water.firstGlassBeforeFirstMealPercent !== null && (
+                    <p className="text-sm text-text-secondary">
+                      An {periodInsights.water.firstGlassBeforeFirstMealPercent}% der Tage zuerst getrunken, dann
+                      gegessen (n={periodInsights.water.firstGlassBeforeFirstMealCases})
+                    </p>
+                  )}
+                  {periodInsights.water.timeOfDayDistribution.length > 0 && (
+                    <p className="text-sm text-text-secondary">
+                      {periodInsights.water.timeOfDayDistribution.map((b) => `${b.label}: ${b.percent}%`).join(' · ')}
+                    </p>
+                  )}
+                </div>
               </>
             )}
           </div>

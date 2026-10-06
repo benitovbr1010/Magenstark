@@ -47,10 +47,18 @@ export function computeFellAsleepAt(bedAt: Date, offsetMinutes: number): Date {
   return new Date(bedAt.getTime() + offsetMinutes * 60_000)
 }
 
-export function sleepDurationMinutes(log: Pick<SleepLogRow, 'bed_at' | 'woke_at'>): number | null {
-  if (!log.bed_at || !log.woke_at) return null
-  const minutes = (new Date(log.woke_at).getTime() - new Date(log.bed_at).getTime()) / 60_000
+export function sleepDurationMinutes(
+  log: Pick<SleepLogRow, 'bed_at' | 'woke_at'> & Partial<Pick<SleepLogRow, 'fell_asleep_at'>>,
+): number | null {
+  const start = log.fell_asleep_at ?? log.bed_at
+  if (!start || !log.woke_at) return null
+  const minutes = (new Date(log.woke_at).getTime() - new Date(start).getTime()) / 60_000
   return minutes > 0 ? Math.round(minutes) : null
+}
+
+/** Plausibilitätsprüfung: Schlafdauer unter 1 Std. oder über 16 Std. ist wahrscheinlich ein Zeiten-Fehler. */
+export function isPlausibleSleepDuration(minutes: number): boolean {
+  return minutes >= 60 && minutes <= 16 * 60
 }
 
 export function formatDuration(minutes: number): string {

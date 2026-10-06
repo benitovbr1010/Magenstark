@@ -84,6 +84,30 @@ export function endOfDay(date: Date): Date {
   return d
 }
 
+export function addDays(date: Date, days: number): Date {
+  const d = new Date(date)
+  d.setDate(d.getDate() + days)
+  return d
+}
+
+/** Minuten seit Mitternacht -> "HH:MM" (für Zeit-Einstellungen wie "Morgen-Check ab"). */
+export function minutesToTimeInput(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+/** "HH:MM" -> Minuten seit Mitternacht. */
+export function timeInputToMinutes(value: string): number {
+  const [h, m] = value.split(':').map(Number)
+  return (h || 0) * 60 + (m || 0)
+}
+
+/** Kurzes Datum für Chips, z.B. "Di., 6.10." */
+export function formatChipDate(date: Date): string {
+  return date.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })
+}
+
 /** Woche beginnt Montag. */
 export function getWeekDates(reference: Date): Date[] {
   const day = reference.getDay()

@@ -144,9 +144,10 @@ export type SleepDurationStats = {
 export function computeSleepDuration(sleepLogRows: SleepLogRow[]): SleepDurationStats {
   const durations: number[] = []
   for (const log of sleepLogRows) {
-    if (!log.bed_at || !log.woke_at) continue
-    const hours = (new Date(log.woke_at).getTime() - new Date(log.bed_at).getTime()) / 3600000
-    if (hours > 0 && hours < 16) durations.push(hours)
+    const start = log.fell_asleep_at ?? log.bed_at
+    if (!start || !log.woke_at) continue
+    const hours = (new Date(log.woke_at).getTime() - new Date(start).getTime()) / 3600000
+    if (hours >= 1 && hours <= 16) durations.push(hours)
   }
   const avgDurationHours = durations.length
     ? Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) * 10) / 10
