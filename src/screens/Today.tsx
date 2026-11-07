@@ -1,6 +1,7 @@
 import { Activity, CheckCircle2, GlassWater, Mic, Minus, Soup, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { AddMealSheet } from '../components/AddMealSheet'
 import { BristolIcon } from '../components/BristolIcon'
 import { ContextSheet } from '../components/ContextSheet'
 import { KnowledgeSheet } from '../components/KnowledgeSheet'
@@ -84,6 +85,7 @@ export function Today() {
   const [todaySleepQualityFilled, setTodaySleepQualityFilled] = useState(false)
   const [morningCheckDismissed, setMorningCheckDismissed] = useState(false)
   const [morningCheckManualOpen, setMorningCheckManualOpen] = useState(false)
+  const [addMealSheetOpen, setAddMealSheetOpen] = useState(false)
 
   function reloadContext() {
     if (!session) return
@@ -334,6 +336,23 @@ export function Today() {
         </div>
       </button>
 
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setAddMealSheetOpen(true)}
+          className="flex-1 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white"
+        >
+          + Mahlzeit nachtragen
+        </button>
+        <Link
+          to={`/mahlzeiten-mehrere${captureSuffix}`}
+          className="flex items-center gap-1.5 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white"
+        >
+          <Mic size={16} />
+          Mehrere auf einmal
+        </Link>
+      </div>
+
       <div className="mt-6">
         {loading ? null : entries.length === 0 ? (
           <div className="rounded-2xl border border-border bg-card p-5 text-center">
@@ -537,6 +556,12 @@ export function Today() {
       )}
 
       <KnowledgeSheet article={infoArticle} onClose={() => setInfoArticle(null)} />
+
+      <AddMealSheet
+        open={addMealSheetOpen}
+        onClose={() => setAddMealSheetOpen(false)}
+        initialDate={nowOnDate(selectedDate)}
+      />
     </div>
   )
 }

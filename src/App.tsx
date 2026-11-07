@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { TabBar } from './components/TabBar'
 import { useAuth } from './lib/AuthContext'
+import { BatchMeal } from './screens/BatchMeal'
 import { BowelMovement } from './screens/BowelMovement'
 import { DayClosing } from './screens/DayClosing'
 import { Document } from './screens/Document'
@@ -44,6 +45,7 @@ export default function App() {
       <Route path="/toilette" element={<CaptureLayout><BowelMovement /></CaptureLayout>} />
       <Route path="/befinden" element={<CaptureLayout><Wellbeing /></CaptureLayout>} />
       <Route path="/mahlzeit" element={<CaptureLayout><Meal /></CaptureLayout>} />
+      <Route path="/mahlzeiten-mehrere" element={<CaptureLayout><BatchMeal /></CaptureLayout>} />
       <Route path="/tagesabschluss" element={<CaptureLayout><DayClosing /></CaptureLayout>} />
       <Route path="/dokument" element={<CaptureLayout><Document /></CaptureLayout>} />
       <Route path="/wissen" element={<CaptureLayout><Knowledge /></CaptureLayout>} />

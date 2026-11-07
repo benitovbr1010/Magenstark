@@ -1,5 +1,5 @@
-import { Info, Soup } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Camera, Info, Soup } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DateTimeField } from '../components/DateTimeField'
 import { KnowledgeSheet } from '../components/KnowledgeSheet'
@@ -14,6 +14,7 @@ import { useAuth } from '../lib/AuthContext'
 import { goodMarkerLabels, markerLabels, mealTypeLabels, portionLabels, type PortionKey } from '../lib/constants'
 import { fetchLatestContext, type ActiveContext } from '../lib/context'
 import { withDatePart } from '../lib/datetime'
+import { extractMealSegments, fileToBase64Image } from '../lib/extractMeals'
 import {
   computeMealMarkers,
   fetchIngredientProfiles,
@@ -42,6 +43,10 @@ export function Meal() {
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
   const dateParam = searchParams.get('date')
+  const typeParam = searchParams.get('type') as MealType | null
+  const timeParam = searchParams.get('time')
+  const modeParam = searchParams.get('mode')
+  const forcedType = typeParam && mealTypeKeys.includes(typeParam) ? typeParam : null
   const { session } = useAuth()
 
   const [rawText, setRawText] = useState('')
@@ -50,9 +55,13 @@ export function Meal() {
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [editingSummary, setEditingSummary] = useState(false)
   const [infoArticle, setInfoArticle] = useState<KnowledgeArticle | null>(null)
+  const [photoLoading, setPhotoLoading] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
-  const [eatenAt, setEatenAt] = useState(() => (dateParam ? withDatePart(new Date(), dateParam) : new Date()))
-  const [mealType, setMealType] = useState<MealType>('snack')
+  const [eatenAt, setEatenAt] = useState(() =>
+    timeParam ? new Date(timeParam) : dateParam ? withDatePart(new Date(), dateParam) : new Date(),
+  )
+  const [mealType, setMealType] = useState<MealType>(forcedType ?? 'snack')
   const [summary, setSummary] = useState('')
   const [mainFoods, setMainFoods] = useState<string[]>([])
   const [markers, setMarkers] = useState<Marker[]>([])
@@ -133,7 +142,7 @@ export function Meal() {
       setAnalyzeError('Auswertung fehlgeschlagen. Bitte erneut versuchen.')
       return
     }
-    setMealType(data.meal_type)
+    setMealType(forcedType ?? data.meal_type)
     setSummary(data.summary)
     setMainFoods(data.main_foods ?? [])
     setMarkers(data.markers ?? [])
@@ -144,7 +153,7 @@ export function Meal() {
     setPrepMarkers(data.prep_markers ?? [])
     setFodmapSources(data.fodmap_sources ?? [])
     if (data.ingredients?.length) setIngredientProfiles(await fetchIngredientProfiles(data.ingredients))
-    if (!keepTime) {
+    if (!keepTime && !timeParam) {
       if (data.eaten_at_hint) {
         const [h, m] = data.eaten_at_hint.split(':').map(Number)
         if (!Number.isNaN(h) && !Number.isNaN(m)) {
@@ -167,6 +176,24 @@ export function Meal() {
   async function handleReanalyze() {
     if (!rawText.trim()) return
     await runAnalysis(rawText, true)
+  }
+
+  async function handlePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoLoading(true)
+    setAnalyzeError(null)
+    const image = await fileToBase64Image(file)
+    const segments = await extractMealSegments({ images: [image] })
+    setPhotoLoading(false)
+    if (!segments || segments.length === 0) {
+      setAnalyzeError('Konnte darauf keine Mahlzeit erkennen. Bitte Text eingeben.')
+      return
+    }
+    const text = segments.map((s) => s.text).join('. ')
+    setRawText(text)
+    await runAnalysis(text, !!timeParam)
   }
 
   function applySavedMeal(meal: SavedMealRow) {
@@ -275,14 +302,33 @@ export function Meal() {
                 value={rawText}
                 onChange={(e) => setRawText(e.target.value)}
                 placeholder="Was hast du gegessen?"
-                autoFocus
+                autoFocus={modeParam !== 'foto'}
                 rows={6}
                 className="flex-1 rounded-2xl border border-border bg-card px-4 py-3 text-text outline-none focus:border-primary"
               />
-              <VoiceRecorder
-                onTranscribed={(text) => setRawText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))}
-              />
+              <div className="flex flex-col gap-2">
+                <VoiceRecorder
+                  onTranscribed={(text) => setRawText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))}
+                />
+                <button
+                  type="button"
+                  disabled={photoLoading}
+                  onClick={() => photoInputRef.current?.click()}
+                  aria-label="Foto/Screenshot hochladen"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary-light text-primary-text disabled:opacity-40"
+                >
+                  <Camera size={20} />
+                </button>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoSelected}
+                />
+              </div>
             </div>
+            {photoLoading && <p className="text-sm text-text-tertiary">Foto wird gelesen …</p>}
             {analyzeError && <p className="text-sm text-warning">{analyzeError}</p>}
             <button
               type="button"
