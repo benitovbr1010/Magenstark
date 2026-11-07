@@ -9,7 +9,7 @@ import { VoiceRecorder } from '../components/VoiceRecorder'
 import { useAuth } from '../lib/AuthContext'
 import { goodMarkerLabels, markerLabels, mealTypeLabels } from '../lib/constants'
 import { fetchLatestContext, type ActiveContext } from '../lib/context'
-import { withDatePart, withTimePart } from '../lib/datetime'
+import { nowOnDate, withDatePart, withTimePart } from '../lib/datetime'
 import { extractMealSegments, fileToBase64Image } from '../lib/extractMeals'
 import type { IngredientDetails } from '../lib/ingredientProfiles'
 import { supabase } from '../lib/supabaseClient'
@@ -81,12 +81,10 @@ export function BatchMeal() {
         const { data } = await supabase.functions.invoke('analyze-meal', {
           body: { text: segment.text, currentTime: now.toISOString() },
         })
-        let eatenAt = new Date(baseDate)
+        let eatenAt = nowOnDate(baseDate)
         if (segment.time_hint) {
           const [h, m] = segment.time_hint.split(':').map(Number)
           if (!Number.isNaN(h) && !Number.isNaN(m)) eatenAt = withTimePart(baseDate, segment.time_hint)
-        } else {
-          eatenAt = now
         }
         const draft: Draft = {
           id: crypto.randomUUID(),

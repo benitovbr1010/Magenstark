@@ -1,5 +1,5 @@
 import { Camera, Mic, Pencil } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { mealTypeLabels } from '../lib/constants'
 import { DateTimeField } from './DateTimeField'
@@ -20,6 +20,12 @@ export function AddMealSheet({
   const navigate = useNavigate()
   const [mealType, setMealType] = useState<MealType>('fruehstueck')
   const [time, setTime] = useState(initialDate)
+
+  // initialDate ändert sich beim Tag-Wechsel (WeekStrip), aber das Sheet bleibt dauerhaft gemountet
+  // (nur `open` togglet) — Zeit daher bei jedem Öffnen neu aus initialDate übernehmen.
+  useEffect(() => {
+    if (open) setTime(initialDate)
+  }, [open, initialDate])
 
   if (!open) return null
 
